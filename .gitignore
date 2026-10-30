@@ -1,0 +1,13 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
+
+# local tooling and secrets never belong in this repo
+.claude/
+.env
+*.local
+node_modules/
