@@ -1,7 +1,7 @@
 {
   "name": "Rise of the Analyst",
   "short_name": "Rise",
-  "description": "Pixel-art RPG: from an unemployed graduate in a village bedsit to partner in the financial district of Lombard City.",
+  "description": "Pixel-art RPG: from the post room of the biggest asset manager on Earth to the corner office. A bus and two trains from a room above a chip shop.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
