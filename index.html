@@ -75,7 +75,20 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);over
 .row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border:2px solid var(--line);background:var(--ui);padding:8px 10px;margin:6px 0;font-size:14px}
 .row small{display:block;color:var(--ink-2);font-size:12px}
 .row .ok{color:var(--green);font-family:var(--pix);font-size:10px}.row .no{color:var(--red);font-family:var(--pix);font-size:10px}
-@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+/* touch controls: a round stick bottom-left, one action button bottom-right. Shown on coarse pointers or after the first touch. */
+#joy{position:absolute;left:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));width:124px;height:124px;border-radius:50%;background:rgba(13,15,22,.55);border:2px solid var(--line);box-shadow:2px 2px 0 #000;touch-action:none;z-index:6;display:none}
+#joy::before{content:"";position:absolute;inset:34px;border-radius:50%;border:2px dashed rgba(168,173,189,.35)}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:var(--ui2);border:2px solid var(--gold);box-shadow:2px 2px 0 #000;pointer-events:none}
+#actBtn{position:absolute;right:18px;bottom:calc(34px + env(safe-area-inset-bottom,0px));width:70px;height:70px;border-radius:50%;background:rgba(245,197,66,.92);color:#2b1d05;border:2px solid #000;font-family:var(--pix);font-size:11px;font-weight:700;box-shadow:3px 3px 0 #000;z-index:6;touch-action:none;display:none}
+#actBtn:active{transform:translate(1px,1px);box-shadow:2px 2px 0 #000}
+@media (pointer:coarse){#joy,#actBtn{display:block}}
+body.touch #joy,body.touch #actBtn{display:block}
+body.indlg #joy,body.indlg #actBtn{display:none}
+#zoom{position:absolute;right:8px;top:calc(env(safe-area-inset-top,0px) + 54px);display:flex;flex-direction:column;gap:4px;z-index:4}
+#zoom button{width:34px;height:34px;font-family:var(--pix);font-size:14px;background:rgba(13,15,22,.85);color:var(--ink);border:2px solid var(--line);box-shadow:2px 2px 0 #000;padding:0}
+#fade{position:absolute;inset:0;background:#05060a;opacity:0;transition:opacity .3s;pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;text-align:center;font-family:var(--pix);font-size:12px;color:var(--gold);white-space:pre-line;line-height:1.8}
+#fade.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.toast,#fade{transition:none}}
 [hidden]{display:none!important}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:#0d0f16}
 </style>
@@ -88,6 +101,10 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
       <div class="box"><span id="hDay">Day 1 · Mon</span><small id="hRank">Office Junior</small></div>
       <div class="right"><div class="box"><span class="en" id="hEnergy">●●●●●●●●</span><small>energy</small></div><div class="box"><span id="hCash">$400</span><small id="hBook">—</small></div><button id="menuBtn" aria-label="Menu">MENU</button></div>
     </div>
+    <div id="fade"></div>
+    <div id="zoom"><button id="zIn" aria-label="Zoom in">+</button><button id="zOut" aria-label="Zoom out">−</button></div>
+    <div id="joy"><div id="knob"></div></div>
+    <button id="actBtn" aria-label="Act">ACT</button>
     <div class="toast" id="toast"></div>
     <div class="sheet" id="sheet"><button class="close" id="sheetClose">CLOSE</button><div id="sheetBody"></div></div>
     <div class="mini" id="mini"></div>
@@ -97,10 +114,16 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
 
 <script>
 (() => {
-const KEY='rota.v3', T=16;
+const KEY='rota.v4', OLD_KEY='rota.v3', SAVE_V=4, T=16;
 const $=id=>document.getElementById(id);
 const rnd=()=>Math.random(), gauss=()=>{ let u=0,v=0; while(!u)u=rnd(); while(!v)v=rnd(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), pick=a=>a[Math.floor(rnd()*a.length)];
+// Seeded randomness for everything the WORLD decides (which facts, which events, who says what): the same save on the same day always draws
+// the same things, so a reload can never reroll a day. rnd() stays unseeded and is for market noise and cosmetics only.
+const mulberry32=a=>()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+const dayRng=(tag,day)=>mulberry32(hash(`${S.seed}:${day==null?S.day:day}:${tag}`));   // a fresh stream per (save, day, tag)
+const dayRoll=(tag,day)=>dayRng(tag,day)();                                             // one [0,1) number
+const dpick=(r,a)=>a[Math.floor(r()*a.length)];                                         // pick with a given stream
 const money=v=>(v<0?'−':'')+'$'+Math.round(Math.abs(v)).toLocaleString('en-US');
 const moneyM=v=>{ const a=Math.abs(v); const s=a>=1e9?(a/1e9).toFixed(1)+'B':a>=1e6?(a/1e6).toFixed(1)+'M':Math.round(a/1e3)+'k'; return (v<0?'−':'')+'$'+s; };
 const pct=v=>(v>0?'+':v<0?'−':'')+Math.abs(v).toFixed(1)+'%';
@@ -372,7 +395,7 @@ function mkAshbury(){
   bld(g,B,{id:'t4',x:27,y:5,w:3,h:3,style:'brick',color:'#5a3a2a',label:'',door:false,text:'A terrace with net curtains. The curtains move.'});
   bld(g,B,{id:'t5',x:30,y:5,w:3,h:3,style:'brick',boarded:true,color:'#4a3028',label:'',door:false,text:'Fire damage. Nobody talks about it.'});
   bld(g,B,{id:'home1',x:2,y:12,w:5,h:6,kind:'home',tier:1,style:'tower',color:'#5a5e66',label:'CARVER TOWER'});
-  bld(g,B,{id:'anchor',x:19,y:14,w:6,h:4,kind:'anchor',style:'shop',boarded:true,color:'#4a2a2a',sign:'#3a2a2a',label:'THE ANCHOR',door:false});
+  bld(g,B,{id:'anchor',x:19,y:14,w:6,h:4,kind:'anchor',style:'shop',boarded:true,color:'#4a2a2a',sign:'#3a2a2a',label:'THE ANCHOR',door:false,text:'The Anchor. Boarded up since the brewery pulled out. Someone has written RIP on the door, and under it, GOOD.'});
   return {rows:g.map(r=>r.join('')), buildings:B, bus:{dir:1}, platforms:[], lanes:[{y:1,dir:-1,n:1,bus:true},{y:2,dir:1,n:1,bus:true}]};
 }
 /* Millbrook. A market town with hanging baskets. The first change. */
@@ -458,7 +481,7 @@ const TOWN_NAMES={ashbury:'Ashbury', millbrook:'Millbrook', brayford:'Brayford J
 const LINE=['ashbury','millbrook','brayford','city'];
 const LEGS=[{mode:'bus', fare:2, out:'the 7:05 bus', back:'the 18:40 bus'},{mode:'train', fare:4, out:'the 7:31 stopping train', back:'the 18:12 train'},{mode:'train', fare:6, out:'the 7:58 express', back:'the 17:48 express'}];
 // where you stand when you step off, by direction of travel (e: heading east into the city, w: heading west, home)
-const ARRIVE={ashbury:{w:[17,3]}, millbrook:{e:[15,18], w:[16,3]}, brayford:{e:[16,3], w:[16,14]}, city:{e:[10,49]}};
+const ARRIVE={ashbury:{w:[17,3,'left']}, millbrook:{e:[15,18,'left'], w:[16,3,'up']}, brayford:{e:[16,3,'up'], w:[16,14,'down']}, city:{e:[10,49,'up']}};
 const STOP_TEXT={
  ashbury:{e:'Ashbury bus stop. The shelter has no glass and the timetable has a phone number scratched into it. The 7:05 to Millbrook station is late, which counts as on time.'},
  millbrook:{e:'Millbrook station. One platform, hanging baskets, a man with a flag. The 7:31 stopping train to Brayford Junction.', w:'Millbrook, the bus stop by the green. The 18:40 to Ashbury, when it comes.'},
@@ -474,14 +497,16 @@ const HOMES=[
  {t:'Riverside flat, Lombard City', town:'city', bld:'home3', rent:3200, deposit:20000, energy:11, desc:'Ninth floor, glass on three sides, the river underneath and the office across the bridge. No commute at all. +3 energy per day.'}];
 const PASS_COST=220, PASS_DAYS=30, TUBE_FARE=3;
 let S;
-function fresh(){ const s={ day:1, energy:8, cash:400, rep:5, xp:0, lvl:1, pts:0, stats:{analysis:2,charm:2,nerve:2},
+function fresh(){ const s={ v:SAVE_V, seed:Math.floor(Math.random()*2147483647), day:1, energy:8, cash:400, rep:5, xp:0, lvl:1, pts:0, stats:{analysis:2,charm:2,nerve:2}, prog:{analysis:0,charm:0,nerve:0},
     job:{firm:'blackboulder', rank:0, trust:10, frep:0, pnlQ:0, rivalPnl:0, days:0, met:false, boost:false, cut:false, promoDay:0},
     know:{}, insights:[], reads:0, paper:false, pos:{}, ppos:{}, px:{}, hist:{}, drift:{}, signals:{}, aff:{}, flags:{daily:{}}, home:{tier:0, pass:0}, study:{pts:0, cert:0}, cooldown:{}, cv:[], ms:null, insider:null, scene:{k:'home'}, player:{x:3,y:4,dir:'down'}, over:null };
   for (const t of KNOW) s.know[t.k]=0;
   for (const k of TICK){ s.px[k.t]=40+rnd()*160; s.hist[k.t]=[]; s.drift[k.t]=(rnd()-0.5)*0.02; s.pos[k.t]=0; s.ppos[k.t]=0; for (let i=0;i<30;i++){ s.px[k.t]*=1+s.drift[k.t]*0.5+k.vol*gauss(); s.hist[k.t].push(s.px[k.t]); } }
   return s; }
 const save=()=>{ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} };
-const load=()=>{ try{ const j=localStorage.getItem(KEY); if(j){ const o=JSON.parse(j); if (o&&o.player&&o.scene&&o.know&&o.job) return o; } }catch(e){} return null; };
+// migrate(): upgrade an older save in place. Every new field added to fresh() in later versions gets its default here too.
+const migrate=o=>{ if (!o.v||o.v<4){ o.v=4; if (o.seed==null) o.seed=Math.floor(Math.random()*2147483647); } if (!o.prog) o.prog={analysis:0,charm:0,nerve:0}; return o; };
+const load=()=>{ for (const key of [KEY, OLD_KEY]){ try{ const j=localStorage.getItem(key); if(j){ const o=JSON.parse(j); if (o&&o.player&&o.scene&&o.know&&o.job) return migrate(o); } }catch(e){} } return null; };
 S=load()||fresh();
 const firm=()=>S.job?firmById(S.job.firm):null;
 const rankName=()=>{ const f=firm(); if (!f) return 'Unemployed'; return S.job.rank>=TOP?f.top:RANKS[S.job.rank].t; };
@@ -491,6 +516,9 @@ const isJunior=()=>!!S.job&&S.job.rank===0;
 const maxEnergy=()=>HOMES[S.home.tier].energy;
 const xpNeed=()=>S.lvl*80;
 function gainXp(n){ S.xp+=n; while (S.xp>=xpNeed()){ S.xp-=xpNeed(); S.lvl++; S.pts++; toast(`LEVEL ${S.lvl}! +1 stat point (MENU)`); } }
+// Stats grow by doing, not by lottery: every PROG_NEED[stat] units of progress is +1 to the stat. The MENU shows the counter.
+const PROG_NEED={analysis:6, charm:4, nerve:3};
+function progress(stat, n=1){ S.prog=S.prog||{analysis:0,charm:0,nerve:0}; S.prog[stat]=(S.prog[stat]||0)+n; if (S.prog[stat]>=PROG_NEED[stat]){ S.prog[stat]-=PROG_NEED[stat]; S.stats[stat]++; toast(`+1 ${stat[0].toUpperCase()+stat.slice(1)}`); return true; } return false; }
 function useEnergy(n){ if (S.energy<n){ toast('Too tired. Go home and sleep.'); return false; } S.energy-=n; hud(); return true; }
 const daily=k=>!!S.flags.daily[k];
 const setDaily=(k,v=true)=>{ S.flags.daily[k]=v; };
@@ -523,7 +551,7 @@ function maybeInsight(topic, src){ const open=S.insights.filter(i=>i.status==='n
   gainXp(10); return ins; }
 function learn(topic, n, src){ const lvl=S.know[topic]||0; const gain=Math.min(n, 10-lvl); S.know[topic]=lvl+gain; S.reads++; gainXp(8*n);
   let t=gain>0?`+${gain} ${topicName(topic)} (${S.know[topic]}/10).`:`${topicName(topic)} is at 10. You could teach this.`;
-  if (gain>0&&rnd()<0.08){ S.stats.analysis++; t+=' Something clicks. +1 Analysis.'; }
+  if (gain>0&&progress('analysis',1)) t+=' Something clicks. +1 Analysis.';
   const ins=maybeInsight(topic, src); if (ins) t+=`\n\nINSIGHT: ${ins.text}\n(Pitch it to ${first(BB.staff.mentor.name)} or ${first(BB.staff.boss.name)} at the office.)`;
   return t; }
 function readMenu(n, src, choices, cap, capKey){ const used=S.flags.daily[capKey]||0;
@@ -560,7 +588,7 @@ function spawnNPCs(){ NPCS=[]; if (SC.k!=='office') return; const f=SC.firm; con
   const mk=(kind, def, x, y, patrol)=>{ const h=hash(def.name); const shirt=kind==='boss'?'#1b1f3a':(SHIRT[def.kind||kind]); return {id:kind, kind:def.kind||kind, name:def.name, role:def.title, x, y, fx:x, fy:y, dir:'down', t:rnd()*100, patrol, frames:charFrames(HAIRS[h%HAIRS.length], shirt, (h>>3)%2?'#1c1a22':'#2b2f3c', SKINS[(h>>5)%SKINS.length])}; };
   NPCS.push(mk('boss', st.boss, 9, 3), mk('mentor', st.mentor, 5, 9, [[5,9],[8,9]]), mk('rival', st.rival, 11, 11, [[11,11],[14,11]]), mk('extra', st.extra, 18, 12)); }
 function spawnTraffic(){ const cars=[]; const W=SC.rows[0].length; (SC.lanes||[]).forEach(l=>{ for (let i=0;i<(l.n||2);i++) cars.push({x:rnd()*W, y:l.y, dir:l.dir, sp:(l.bus?1.6:2.4)+rnd()*1.4, kind:(l.bus||rnd()<0.4)?'bus':'cab'}); }); if (SC.boat) cars.push({x:rnd()*W, y:33, dir:1, sp:0.7, kind:'boat'}); return cars; }
-function go(k, firmId, x, y, dir){ S.scene={k, firm:firmId||null}; SC=buildScene(k, firmId); spawnNPCs(); SC.cars=spawnTraffic(); P.x=x; P.y=y; P.fx=x; P.fy=y; P.dir=dir||'down'; P.moving=false; P.path=[]; P.after=null; S.player={x,y,dir:P.dir}; resize(); hud(); save(); }
+function go(k, firmId, x, y, dir){ S.scene={k, firm:firmId||null}; SC=buildScene(k, firmId); spawnNPCs(); SC.cars=spawnTraffic(); P.x=x; P.y=y; P.fx=x; P.fy=y; P.px=P.py=null; P.dir=dir||'down'; P.moving=false; P.path=[]; P.after=null; S.player={x,y,dir:P.dir}; resize(); hud(); save(); }
 const bldIn=(town,id)=>TOWN[town].buildings.find(b=>b.id===id);
 function goHome(){ const p=homePos(); go('home',null,p.x,p.y,'down'); }
 function leaveHome(){ const h=HOMES[S.home.tier]; const b=bldIn(h.town,h.bld); go(h.town,null,b.dx,b.dy+1,'down'); }
@@ -575,7 +603,8 @@ function say(npc, text, choices){ dlg={npc}; $('dlg').classList.add('open'); $('
 function closeDlg(){ dlg=null; $('dlg').classList.remove('open'); $('choices').innerHTML=''; hud(); save(); }
 let tw; function typewrite(el, text){ clearTimeout(tw); el.textContent=''; let i=0; const step=()=>{ el.textContent=text.slice(0,++i); if (i<text.length) tw=setTimeout(step, 12); }; step(); el.onclick=()=>{ clearTimeout(tw); el.textContent=text; }; }
 const npcByKind=k=>NPCS.find(n=>n.id===k);
-function stepBack(){ closeDlg(); P.y++; P.fy=P.y; P.dir='down'; }
+function stepBack(){ closeDlg(); if (!(tile(P.x,P.y)==='O'||platformAt(P.x,P.y))) return; const ok=(x,y)=>x!=null&&!blocked(x,y)&&!platformAt(x,y)&&tile(x,y)!=='O';
+  const c=[[P.px,P.py],[P.x,P.y+1],[P.x,P.y-1],[P.x-1,P.y],[P.x+1,P.y]].find(([x,y])=>ok(x,y)); if (!c) return; P.dir=c[0]<P.x?'left':c[0]>P.x?'right':c[1]<P.y?'up':'down'; P.x=c[0]; P.y=c[1]; P.moving=true; }
 
 /* ---------- the commute: Ashbury -(bus)- Millbrook -(train)- Brayford Junction -(express)- Lombard City ---------- */
 let travelling=false;
@@ -589,15 +618,16 @@ const legName=(i,dir)=>dir>0?LEGS[i].out:LEGS[i].back;
 function stopDialog(dir, extra){ const i=sceneIdx(SC.k); const dests=[]; for (let j=i+dir; j>=0&&j<LINE.length; j+=dir) dests.push(j);
   const opts=[]; dests.forEach((j,n)=>{ const f=fareBetween(i,j); const home=j===homeIdx(); const via=dests.slice(0,n).map(x=>TOWN_NAMES[LINE[x]]);
     opts.push({l:(j===3?'To work: Lombard City':home?'Home: '+TOWN_NAMES[LINE[j]]:'To '+TOWN_NAMES[LINE[j]])+` (${fareText(f)})`, cls:(j===3||home)?'gold':'', s:via.length?'Change at '+via.join(' and '):'', f:()=>travel(j,false)});
-    if (n===dests.length-1&&LEGS.slice(Math.min(i,j),Math.max(i,j)).some(l=>l.mode==='train')) opts.push({l:'… and read on the train (1 energy)', s:S.paper?'You have today\'s Financial Ledger: +1 Macro, +1 Markets, insights likelier.':'The free paper someone left on the seat. Mostly football, some markets.', f:()=>travel(j,true)});
+    const readTarget=(dir<0&&dests.includes(homeIdx()))?homeIdx():dests[dests.length-1]; if (j===readTarget&&LEGS.slice(Math.min(i,j),Math.max(i,j)).some(l=>l.mode==='train')) opts.push({l:'… and read on the train (1 energy)', s:S.paper?'You have today\'s Financial Ledger: +1 Macro, +1 Markets, insights likelier.':'The free paper someone left on the seat. Mostly football, some markets.', f:()=>travel(j,true)});
   });
   (extra||[]).forEach(o=>opts.push(o)); opts.push({l:'Wait', f:stepBack}); say(null, STOP_TEXT[SC.k][dir>0?'e':'w'], opts); }
 function travel(j, read, then){ const i=sceneIdx(SC.k); const dir=j>i?1:-1; const fare=fareBetween(i,j);
   if (read&&S.energy<1) return say(null,'Too tired to read. You would only stare at the same paragraph.'); if (!payFare(fare)) return; if (read) S.energy--;
-  closeDlg(); travelling=true; const stops=[]; for (let k=i+dir; k!==j; k+=dir) stops.push(k); stops.push(j); let n=0;
-  const step=()=>{ const k=stops[n++]; const key=LINE[k]; const pos=ARRIVE[key][dir>0?'e':'w']; go(key,null,pos[0],pos[1],'down');
-    if (k!==j){ toast(`${TOWN_NAMES[key]} · change for ${legName(dir>0?k:k-1,dir)}`); setTimeout(step, 1100); }
-    else { travelling=false; toast(TOWN_NAMES[key]); if (then) return then(); if (read){ const paper=S.paper; S.paper=false; const t=paper?learn('macro',1,'paper')+' '+learn('markets',1,'paper'):learn(rnd()<0.5?'markets':'macro',1,'train'); say(null,(paper?'You read the Financial Ledger cover to cover between stations. ':'You read the free paper over someone\'s shoulder. ')+t); } } };
+  closeDlg(); travelling=true; const stops=[]; for (let k=i+dir; k!==j; k+=dir) stops.push(k); stops.push(j); let n=0; const fade=$('fade');
+  const step=()=>{ const k=stops[n++]; const key=LINE[k]; const pos=ARRIVE[key][dir>0?'e':'w']; fade.textContent=legName(dir>0?k-1:k,dir)+'\n'+TOWN_NAMES[key]; fade.classList.add('on');
+    setTimeout(()=>{ go(key,null,pos[0],pos[1],pos[2]||'down'); fade.classList.remove('on');
+    if (k!==j){ toast(`${TOWN_NAMES[key]} · change for ${legName(dir>0?k:k-1,dir)}`); setTimeout(step, 1300); }
+    else { travelling=false; toast(TOWN_NAMES[key]); if (then) return then(); if (read){ const paper=S.paper; S.paper=false; if (paper) say(null,'You read the Financial Ledger cover to cover between stations. '+learn('macro',1,'paper')+' '+learn('markets',1,'paper')); else say(null,'The free paper someone left on the seat. Football, a crossword, and two pages that matter. Which?', [{l:'The markets page', s:'+1 Markets', f:()=>say(null, learn('markets',1,'train'))}, {l:'The economics column', s:'+1 Macro', f:()=>say(null, learn('macro',1,'train'))}]); } } }, 420); };
   step(); }
 function tubeMenu(){ const here=SC.tube.find(t=>Math.abs(t.x-P.x)<=1&&Math.abs(t.y-P.y)<=1)||SC.tube[0];
   say(null,`${here.name} Underground. Warm air from below, a busker, the map with the coloured lines. Fare ${fareText(TUBE_FARE)}.`, SC.tube.filter(t=>t!==here).map(t=>({l:`${t.name}`, f:()=>{ if (!payFare(TUBE_FARE)) return; closeDlg(); go('city',null,t.x,t.y+1,'down'); toast(t.name); }})).concat([{l:'Stay above ground', f:closeDlg}])); }
@@ -631,13 +661,13 @@ const DIALOG={
     if (!j.met){ j.met=true; gainXp(20); return say(n, `You're the junior. Dave. Post at eight, coffee at nine, the morning pack printed and on every desk before the open. Don't touch the terminal, don't talk to ${riv} while he's on the phone, and don't tell me your ideas.\n\nTell ${men}. If she tells me, then we'll talk.`, [{l:'Yes, Mr Flink.', f:closeDlg}, {l:'"I didn\'t take this job to carry post."', s:'Nerve', f:()=>{ if (S.stats.nerve>=3){ trust(3); say(n,'No. You took it because nobody else would have you. But I like that you said it. Trust +3.'); } else { trust(-3); say(n,'Then carry it badly and I\'ll find someone who carries it well. Trust −3.'); } }}]); }
     if (j.rank===0){ if (promoReady()) return promote(n);
       const news=S.insights.filter(i=>i.status==='new'); const opts=[]; if (news.length) opts.push({l:'Pitch an insight (1 energy)', cls:'gold', s:'Riskier than Susan: bigger trust either way', f:()=>pitchMenu(n,'boss')}); opts.push({l:'Nothing. Sorry.', f:closeDlg});
-      return say(n, pick([`${men} says you read. Reading is cheap. Being right is expensive.`, `Trust ${j.trust}/${PROMO_NEED.trust}. Knowledge ${knowTotal()}/${PROMO_NEED.know}. Correct calls ${correctCalls()}/${PROMO_NEED.calls}. That is where you are.`, ...f.lines.boss]), opts); }
+      return say(n, `Trust ${j.trust}/${PROMO_NEED.trust}. Knowledge ${knowTotal()}/${PROMO_NEED.know}. Correct calls ${correctCalls()}/${PROMO_NEED.calls}. That is where you are.\n\n`+dpick(dayRng('bossline'),[`${men} says you read. Reading is cheap. Being right is expensive.`, ...f.lines.boss]), opts); }
     if (j.days-j.promoDay>=2 && !S.ms && !S.flags['ms_'+f.id]){ startMission(f); const k=msTk(); gainXp(15);
       return say(n, `${k.n}. ${k.t}. They report in three days and the stock is down 12% in a week. Everyone has an opinion, nobody knows anything.\n\nFind out what's going on. ${men} knows the company, ${first(f.staff.extra.name)} sees things the rest of us don't, the terminal has the tape, and the café hears everything. Come back with a view, or a good reason not to have one.`, [{l:'On it.', f:closeDlg}]); }
     if (m && m.stage===2){ m.stage=3; const right=m.bet&&m.bet!=='none'&&((m.bet==='long')===(m.truth==='beat')); let t, d=0;
       if (m.bet==='none'&&m.honest){ d=4; t='You came in and said "I don\'t know" with three clues in your hand. Most people guess and hope. I prefer "don\'t know" to an expensive guess. Next time, though, I want a view.'; }
       else if (!m.bet||m.bet==='none'){ d=-3; t='I asked you to find something out, and you found out how to stay away. That is not the same thing.'; }
-      else if (right&&m.big){ d=14; t=`You came to me for firm capital and you were right. ${m.truth==='beat'?'Beat':'Miss'}, exactly as you said. That is how you build a name here.`; aff('boss',15); gainXp(120); if (rnd()<0.5){ S.stats.nerve++; t+='\n\n+1 Nerve.'; } }
+      else if (right&&m.big){ d=14; t=`You came to me for firm capital and you were right. ${m.truth==='beat'?'Beat':'Miss'}, exactly as you said. That is how you build a name here.`; aff('boss',15); gainXp(120); if (progress('nerve',2)) t+='\n\n+1 Nerve.'; }
       else if (right){ d=9; t=`Right direction, sensible size. ${m.truth==='beat'?'They beat':'They missed'} and you were on the right side. Good work.`; aff('boss',8); gainXp(80); }
       else if (m.big){ d=-10; t='You asked for firm capital and you were wrong. It happens. It must not happen twice.'; aff('boss',-10); }
       else { d=-5; t=`Wrong direction. ${m.clues.length<2?'And you had barely spoken to anyone. ':''}Learn from it.`; }
@@ -649,7 +679,7 @@ const DIALOG={
     if (S.flags.reportPending===f.id){ S.flags.reportPending=null; j.frep+=6; S.rep+=4; aff('boss',10); gainXp(30); return say(n,`${riv} and I have had a conversation. You did the right thing, and I don't forget that.`); }
     const news=S.insights.filter(i=>i.status==='new'); const opts=[]; if (news.length) opts.push({l:'Pitch an insight (1 energy)', cls:'gold', s:'Trust and firm reputation if right', f:()=>pitchMenu(n,'boss')});
     if (j.pnlQ<-book()*0.05) return say(n, `You're down ${pct(j.pnlQ/book()*100)} this quarter. I've seen people go back to the post room for less. Fix it.`, opts.concat([{l:'…', f:closeDlg}]));
-    if (j.pnlQ>book()*0.03&&!j.boost) return say(n, `${pct(j.pnlQ/book()*100)}. Not bad. Keep your head; it's when things go well that people get stupid.`, opts.concat([{l:'Ask for a bigger book', s:'Charm · chance', f:()=>{ if (rnd()<0.3+S.stats.charm*0.1){ j.boost=true; j.frep+=4; say(n,'Fine. 25% more until the quarterly review. Don\'t disappoint me.'); } else say(n,'No. Show me a whole quarter first.'); }}, {l:'Thanks.', f:closeDlg}]));
+    if (j.pnlQ>book()*0.03&&!j.boost) return say(n, `${pct(j.pnlQ/book()*100)}. Not bad. Keep your head; it's when things go well that people get stupid.`, opts.concat([{l:'Ask for a bigger book', s:'Charm 4, or firm reputation 20', f:()=>{ if (S.stats.charm>=4||j.frep>=20){ j.boost=true; j.frep+=4; say(n,'Fine. 25% more until the quarterly review. Don\'t disappoint me.'); } else say(n,'No. Ask me when the floor knows your name, or when you can ask without looking at your shoes.'); }}, {l:'Thanks.', f:closeDlg}]));
     return say(n, pick(f.lines.boss.concat(['What do you want? I have a call in three minutes.'])), opts.length?opts.concat([{l:'Nothing.', f:closeDlg}]):undefined);
   },
   mentor(n){ const f=SC.firm, m=msHere(), j=S.job; const news=S.insights.filter(i=>i.status==='new');
@@ -657,7 +687,7 @@ const DIALOG={
     if (m&&m.stage===1&&!m.clues.includes('mentor')) return say(n, addClue('mentor'));
     const opts=[];
     if (news.length) opts.push({l:'Pitch an insight (1 energy)', cls:'gold', s:`${news.length} unpitched`, f:()=>pitchMenu(n,'mentor')});
-    if (S.energy>=1&&!daily('lesson')) opts.push({l:'Half an hour at the whiteboard (1 energy)', s:'+1 knowledge in a topic of her choosing, chance of +Analysis', f:()=>{ if(!useEnergy(1)) return; setDaily('lesson'); aff('mentor',3); trust(1); let t=learn(pick(KNOW).k,1,'lesson'); if (rnd()<0.18){ S.stats.analysis++; t+=' You saw it before she did. +1 Analysis.'; } say(n,t); }});
+    if (S.energy>=1&&!daily('lesson')) opts.push({l:'Half an hour at the whiteboard (1 energy)', s:'+1 in your weakest topic · counts double towards Analysis', f:()=>{ if(!useEnergy(1)) return; setDaily('lesson'); aff('mentor',3); trust(1); const weak=KNOW.slice().sort((a,b)=>(S.know[a.k]||0)-(S.know[b.k]||0))[0]; let t=`She picks the topic you are worst at. ${learn(weak.k,1,'lesson')}`; if (progress('analysis',2)) t+=' You saw it before she did. +1 Analysis.'; say(n,t); }});
     opts.push({l:'Just saying hello', f:()=>say(n, pick(f.lines.mentor))});
     return say(n, j.rank===0?'Dave. What have you got for me?':'What have you got?', opts); },
   rival(n){ const f=SC.firm, j=S.job; const lead=j.pnlQ-j.rivalPnl;
@@ -691,7 +721,7 @@ function interactTile(c){
     if (c==='m'){ if (j.rank>=1) return say(null,'The post room. Jonah does the rounds now and resents you slightly for it.'); if (daily('post')) return say(null,'The post is done. The trolley squeaks at you.');
       return say(null,'The post trolley. Forty envelopes, two parcels, one that ticks (a clock, probably).', [{l:'Do the post round (1 energy)', cls:'gold', s:'Trust +2, and you hear things', f:()=>{ if(!useEnergy(1)) return; setDaily('post'); S.flags.duty=true; trust(2); gainXp(10); let t=`Desk by desk. ${first(f.staff.rival.name)} doesn't look up. ${first(f.staff.mentor.name)} says thank you. Trust +2.`; if (rnd()<0.45){ const ins=maybeInsight('markets','post'); t+=ins?`\n\nAt the equities desk someone is shouting into a phone. You hear enough.\nINSIGHT: ${ins.text}`:'\n\nThe risk desk is arguing about a stock. You catch the name but not the point.'; } say(null,t); }}, {l:'Not now', f:closeDlg}]); }
     if (c==='Q'){ if (j.rank>=1) return say(null,'The printer. Jammed. It is always jammed. Not your problem any more.'); if (daily('print')) return say(null,'The pack is on every desk. The printer sulks.');
-      return say(null,'The printer, and forty copies of the morning pack to bind. Sixty pages of research nobody reads. You could.', [{l:'Print, bind, and read (1 energy)', cls:'gold', s:'Trust +2, +1 Sectors or Markets', f:()=>{ if(!useEnergy(1)) return; setDaily('print'); S.flags.duty=true; trust(2); say(null,'You bind forty packs and read the forty-first on the floor by the paper tray. Trust +2. '+learn(rnd()<0.5?'sectors':'markets',1,'pack')); }}, {l:'Not now', f:closeDlg}]); }
+      return say(null,'The printer, and forty copies of the morning pack to bind. Sixty pages of research nobody reads. You could.', [{l:'Print, bind, and read (1 energy)', cls:'gold', s:'Trust +2, +1 Sectors or Markets', f:()=>{ if(!useEnergy(1)) return; setDaily('print'); S.flags.duty=true; trust(2); say(null,'You bind forty packs and read the forty-first on the floor by the paper tray. Trust +2. Which pages?', [{l:'The sector notes', s:'+1 Sectors', f:()=>say(null, learn('sectors',1,'pack'))}, {l:'The market wrap', s:'+1 Markets', f:()=>say(null, learn('markets',1,'pack'))}]); }}, {l:'Not now', f:closeDlg}]); }
     if (c==='C'){ const opts=[]; if (j.rank===0&&!daily('round')) opts.push({l:'Coffee round for the floor (1 energy)', cls:'gold', s:'Trust +2, everybody likes you a little more', f:()=>{ if(!useEnergy(1)) return; setDaily('round'); S.flags.duty=true; trust(2); ['boss','mentor','rival','extra'].forEach(k=>aff(k,2)); gainXp(10); say(null, pick(['Fourteen coffees, two teas, one hot water with lemon for Ingrid. Nobody says thank you except Susan. Trust +2.','You learn who takes sugar and who pretends not to. Marcus takes three. Trust +2.'])); }});
       const had=S.flags.daily.coffee||0; opts.push({l:'A coffee for yourself (+1 energy)', dis:had>=2, s:had>=2?'Any more and you\'ll shake too much to use the mouse':'', f:()=>{ S.flags.daily.coffee=had+1; S.energy=Math.min(maxEnergy(),S.energy+1); hud(); say(null,'The lever creaks, but it works. +1 energy.'); }}); opts.push({l:'Leave it', f:closeDlg});
       return say(null,'The coffee machine. Italian, temperamental, the most important thing on the floor.', opts); }
@@ -735,7 +765,7 @@ function homeDoor(b){ const mine=HOMES[S.home.tier].bld===b.id;
   if (mine){ closeDlg(); return goHome(); }
   return say(null, {home1:'Carver Tower. The lift smells of something. A sign: FLATS TO LET, ASK AT THE BOOKIES.', home2:'A terrace with a blue door and a rosemary bush. TO LET, Millbrook Lettings. See the housing page on your laptop.', home3:'Riverside. A concierge in a grey suit opens the door for a woman with a small dog and closes it before you reach it.'}[b.id], [{l:'Leave', f:stepBack}]); }
 function bookies(){ say(null,'Lucky 7. Fixed-odds machines, a telly showing the 3:30 from somewhere wet, and a man who studies the form like it was a balance sheet.', [
-    {l:'$20 on the 3:30', cls:'red', s:'The odds say no. Nerve says maybe.', dis:daily('bet'), f:()=>{ if (S.cash<20) return say(null,'The cashier looks at your card and then at you.'); setDaily('bet'); S.cash-=20; if (rnd()<0.38){ S.cash+=50; say(null,'It comes in at 5/2. $50 back. The man with the form nods, once. Don\'t make a habit of it.'); } else say(null,'Fourth. The man with the form does not look up. $20 gone.'); }},
+    {l:'$20 on the 3:30', cls:'red', s:'The odds say no. Nerve says maybe.', dis:daily('bet'), f:()=>{ if (S.cash<20) return say(null,'The cashier looks at your card and then at you.'); setDaily('bet'); S.cash-=20; if (dayRoll('bet')<0.38){ S.cash+=50; say(null,'It comes in at 5/2. $50 back. The man with the form nods, once. Don\'t make a habit of it.'); } else say(null,'Fourth. The man with the form does not look up. $20 gone.'); }},
     {l:'Study the form with the regular (1 energy)', s:'+1 Risk. Odds, overround, and why the house wins.', dis:daily('form'), f:()=>{ if (!useEnergy(1)) return; setDaily('form'); say(null,'He shows you how the odds add up to more than one, always, and who pays the difference. '+learn('risk',1,'bookies')); }},
     {l:'Leave', f:stepBack}]); }
 
@@ -756,7 +786,7 @@ function interview(f, b){ const qs=INTERVIEWS[f.type]; let i=0, score=0; const b
   const next=()=>{ if (i>=qs.length) return verdict(); const q=qs[i++];
     say(bossN, q.q, q.a.map(a=>({l:a.l, f:()=>{ const w=f.likes.includes(a.s)?1:0.55; const roll=S.stats[a.s]*w+rnd()*1.6+S.cv.length*0.3; const pass=roll>=f.diff; score+=pass?1:0; toast(pass?'Good answer.':'Hm.'); next(); }}))); };
   const verdict=()=>{ gainXp(15); if (score>=2){ hire(f); return say(bossN, `${score===3?'Best interview I\'ve had all year.':'Good enough.'} You start now. Your desk is the yellow one.`, [{l:'Thank you.', f:()=>{ closeDlg(); go('office',f.id,9,13,'up'); }}]); }
-    S.cooldown[f.id]=S.day+5; if (rnd()<0.3){ S.stats.nerve++; toast('+1 Nerve. Rejection builds character.'); } return say(bossN, pick(['We\'ll be in touch. We won\'t, actually.','Not this time. Come back when you\'ve learned something.','Thank you for your time. The lift is to the left.']), [{l:'…', f:stepBack}]); };
+    S.cooldown[f.id]=S.day+5; if (progress('nerve',1)) toast('+1 Nerve. Rejection builds character.'); return say(bossN, pick(['We\'ll be in touch. We won\'t, actually.','Not this time. Come back when you\'ve learned something.','Thank you for your time. The lift is to the left.']), [{l:'…', f:stepBack}]); };
   next(); }
 function resign(){ const f=firm(); S.cv.push(f.id); S.flags.fromRank=S.job.rank; if (S.ms&&S.ms.firm===f.id) S.ms=null; S.job=null; for (const k of TICK) S.pos[k.t]=0; save(); hud(); }
 function hire(f){ if (S.job) resign(); const start=(S.flags.fromRank||0)>=2?2:1; S.flags.fromRank=0;
@@ -767,16 +797,16 @@ function cafe(){ const m=msHere();
   say(null,'Café Liquidity. Flat whites, bankers on the phone, and a barista who knows everyone\'s order and everyone\'s bonus.', [
     foodOpt('Flat white',6,1,'cafeCoffee','Good coffee.'),
     ...(m&&m.stage===1&&!m.clues.includes('cafe')?[{l:'Listen in on the next table', cls:'gold', s:'Earnings case clue', f:()=>say(null, addClue('cafe'))}]:[]),
-    {l:'Network (1 energy, $40)', s:'Charm · reputation, maybe +Charm', f:()=>{ if (S.cash<40) return say(null,'Networking costs money. You have none.'); if (!useEnergy(1)) return; S.cash-=40; const r=rnd()*4+S.stats.charm; const d=r>6?3:r>4?2:r>2.5?1:0; S.rep+=d; gainXp(10); let t=d?`You swap cards with a ${pick(['VP from Silverman Sachs','risk manager from Rearguard','trader from Bastion','grad from HBBB'])}. Reputation +${d}.`:'You talk to a man who turns out to be a recruiter for a timeshare company. Nothing gained.'; if (rnd()<0.2){ S.stats.charm++; t+=' You are getting better at this. +1 Charm.'; } const hiring=pick(FIRMS.filter(x=>x.id!=='blackboulder')); t+=`\n\nOverheard: ${hiring.name} is ${pick(['hiring','losing people','restructuring','having a good year'])}. Not that they'd take you.`; say(null,t); }},
+    {l:'Network (1 energy, $40)', s:`Reputation +${S.stats.charm>=6?3:S.stats.charm>=4?2:1} · progress towards Charm`, f:()=>{ if (S.cash<40) return say(null,'Networking costs money. You have none.'); if (!useEnergy(1)) return; S.cash-=40; const d=S.stats.charm>=6?3:S.stats.charm>=4?2:1; S.rep+=d; gainXp(10); let t=`You swap cards with a ${dpick(dayRng('cafe'),['VP from Silverman Sachs','risk manager from Rearguard','trader from Bastion','grad from HBBB'])}. Reputation +${d}.`; if (progress('charm',1)) t+=' You are getting better at this. +1 Charm.'; say(null,t); }},
     {l:'Leave', f:stepBack}]); }
 function pubCity(){ say(null,'The Counting House. A pub in an old banking hall: pints under a glass dome, traders at the bar by noon, and the loudest man in the room is always from a hedge fund.', [
-    {l:'A pint with the traders (1 energy, $8)', s:'Chance of +Charm, a little reputation', dis:daily('pint'), f:()=>{ if (S.cash<8) return say(null,'Nine dollars for a pint and you have eight. The City.'); if (!useEnergy(1)) return; setDaily('pint'); S.cash-=8; gainXp(8); S.rep+=1; if (rnd()<0.25){ S.stats.charm++; say(null,'You make a table of traders laugh with a story about the post room. +1 Charm. Reputation +1.'); } else say(null, pick(['A trader explains why he is "structurally short everything". He buys the round. Reputation +1.','Someone from the Stock Exchange tells you the floor was better. Everyone over fifty says this. Reputation +1.'])); }},
+    {l:'A pint with the traders (1 energy, $8)', s:'Reputation +1 · progress towards Charm', dis:daily('pint'), f:()=>{ if (S.cash<8) return say(null,'Nine dollars for a pint and you have eight. The City.'); if (!useEnergy(1)) return; setDaily('pint'); S.cash-=8; gainXp(8); S.rep+=1; if (progress('charm',1)) say(null,'You make a table of traders laugh with a story about the post room. +1 Charm. Reputation +1.'); else say(null, dpick(dayRng('pint'),['A trader explains why he is "structurally short everything". He buys the round. Reputation +1.','Someone from the Stock Exchange tells you the floor was better. Everyone over fifty says this. Reputation +1.'])); }},
     {l:'Leave', f:stepBack}]); }
 function library(){ say(null,'Millbrook Library. Three shelves of finance, a kind librarian and a radiator that actually works.', [
     {l:'Study for the AFA exam (2 energy)', cls:'gold', s:'+2 study points, chance of +Analysis', f:()=>{ if (!useEnergy(2)) return; study(2); }},
     ...readMenu(null,'library',KNOW.map(t=>({l:`Borrow: ${t.t}`, k:t.k, s:t.d})),2,'library'),
     {l:'Leave', f:stepBack}]); }
-function study(n){ S.study.pts+=n; gainXp(10*n); let t=`You study. ${n} study point${n>1?'s':''} (${S.study.pts} total).`; if (rnd()<0.12*n){ S.stats.analysis++; t+=' Something clicks. +1 Analysis.'; } const need=S.study.cert===0?4:10; t+=S.study.cert>=2?'':`\nNext exam needs ${need} points${S.study.pts>=need?'. You\'re ready. The AFA Institute is in the city, north of the river.':'.'}`; say(null,t); }
+function study(n){ S.study.pts+=n; gainXp(10*n); let t=`You study. ${n} study point${n>1?'s':''} (${S.study.pts} total).`; if (progress('analysis',n)) t+=' Something clicks. +1 Analysis.'; const need=S.study.cert===0?4:10; t+=S.study.cert>=2?'':`\nNext exam needs ${need} points${S.study.pts>=need?'. You\'re ready. The AFA Institute is in the city, north of the river.':'.'}`; say(null,t); }
 function institute(){ const lvl=S.study.cert+1; if (lvl>2) return say(null,'AFA Institute. You hold both levels. The receptionist asks if you\'d like to teach.', [{l:'Leave', f:stepBack}]);
   const need=lvl===1?4:10, fee=lvl===1?300:600; const p=clamp(0.3+0.08*S.stats.analysis+0.01*knowTotal()+0.04*(S.study.pts-need),0.05,0.95);
   say(null,`AFA Institute. Associate Financial Analyst, level ${lvl}. Fee ${money(fee)}. You have ${S.study.pts} study points (${need} needed).\n\n${S.study.pts>=need?`Estimated chance: ${Math.round(p*100)}%. Knowledge helps.`:'You are not ready to sit it.'}`, [
@@ -806,7 +836,7 @@ function canTrade(k, dir){ const r=rules(); if (dir<0&&r.noShort) return `${firm
 function deskMenu(){ const m=msHere(); const open=TICK.filter(k=>S.pos[k.t]).map(k=>`${k.t}: ${S.pos[k.t]>0?'long':'short'} ${money(Math.abs(S.pos[k.t])*S.px[k.t])}`).join('\n')||'none';
   say(null, `Your desk. Three screens, a cold cup of coffee. Book ${moneyM(book())}.\nOpen positions:\n${open}`, [
     {l:'Research a stock (2 energy)', s:'Read the signal with your Analysis and knowledge', f:()=>{ if (!useEnergy(2)) return; closeDlg(); openResearch(); }},
-    ...(m&&m.stage===1&&!m.bet ? [{l:`Take a view on ${m.tk}`, cls:'gold', s:`${m.clues.length} of 5 clues · reports in ${m.earnDay-S.day} day(s)`, f:()=>{ const stake=Math.min(0.4, Math.max(0.1, SC.firm.fireLoss*2), rules().maxSize||1); const cap=book()*stake*(m.big?2:1); const place=dir=>{ const err=canTrade(m.tk,dir); if (err) return say(null,err); const sh=Math.floor(cap/S.px[m.tk])*dir; S.pos[m.tk]+=sh; m.bet=dir>0?'long':'short'; S.flags.traded=true; gainXp(10); say(null, `${dir>0?'LONG':'SHORT'} ${m.tk} for ${money(Math.abs(sh)*S.px[m.tk])}${m.big?' with firm capital':''}. Now we wait.`); };
+    ...(m&&m.stage===1&&!m.bet ? [{l:`Take a view on ${m.tk}`, cls:'gold', s:`${m.clues.length} of 4 clues · reports in ${m.earnDay-S.day} day(s)`, f:()=>{ const stake=Math.min(0.4, Math.max(0.1, SC.firm.fireLoss*2), rules().maxSize||1); const cap=book()*stake*(m.big?2:1); const place=dir=>{ const err=canTrade(m.tk,dir); if (err) return say(null,err); const sh=Math.floor(cap/S.px[m.tk])*dir; S.pos[m.tk]+=sh; m.bet=dir>0?'long':'short'; S.flags.traded=true; gainXp(10); say(null, `${dir>0?'LONG':'SHORT'} ${m.tk} for ${money(Math.abs(sh)*S.px[m.tk])}${m.big?' with firm capital':''}. Now we wait.`); };
         say(null, `The ${m.tk} case. Clues: ${m.clues.map(c=>({mentor:first(SC.firm.staff.mentor.name),extra:first(SC.firm.staff.extra.name),terminal:'terminal',cafe:'café'})[c]).join(', ')||'none yet'}.\n${m.big?`${first(SC.firm.staff.boss.name)} has doubled your stake: ${Math.round(stake*200)}% of the book.`:`Stake: ${Math.round(stake*100)}% of the book.`}`, [{l:'LONG: they beat', f:()=>place(1)}, {l:'SHORT: they miss', f:()=>place(-1)}, {l:'Stay out', s:'The boss will ask why', f:()=>{ m.bet='none'; say(null,'You close the tab. Sometimes the best trade is no trade. Your boss may not agree.'); }}, {l:'Wait', f:closeDlg}]); }}] : []),
     {l:'Close a position', f:()=>{ const has=TICK.filter(k=>S.pos[k.t]); if (!has.length) return say(null,'You have no open positions.'); say(null,'Which one?', has.map(k=>({l:`Close ${k.t}`, f:()=>{ S.pos[k.t]=0; gainXp(3); say(null,`${k.t} closed.`); }})).concat([{l:'None', f:closeDlg}])); }},
     {l:'Stand up', f:closeDlg}]);
@@ -885,7 +915,7 @@ function intro(){ S.flags.intro=true; say(null,'Monday, 05:50. Ashbury, the wron
 /* ---------- menu sheet: stats, career, the knowledge book, insights, quests ---------- */
 function openSheet(){
   const b=$('sheetBody'); const f=firm(), j=S.job;
-  const stat=(k,l)=>`<div class="statrow"><span>${l}</span><div class="bar"><i style="width:${Math.min(100,S.stats[k]*10)}%"></i></div>${S.pts?`<button data-st="${k}">+1</button>`:`<span>${S.stats[k]}</span>`}</div>`;
+  const stat=(k,l)=>`<div class="statrow"><span>${l}</span><div class="bar"><i style="width:${Math.min(100,S.stats[k]*10)}%"></i></div>${S.pts?`<button data-st="${k}">+1</button>`:`<span>${S.stats[k]} <small style="color:var(--ink-2)">${(S.prog&&S.prog[k])||0}/${PROG_NEED[k]}</small></span>`}</div>`;
   const nextRep=j&&j.rank>=1&&j.rank<TOP?Math.round(RANKS[j.rank+1].rep*f.promo):null;
   const resolved=S.insights.filter(i=>i.status==='right'||i.status==='wrong').length;
   const insRows=S.insights.slice().reverse().slice(0,8).map(i=>`<div class="ins"><b>${i.tk}</b> ${i.dir>0?'positive':'negative'} · ${topicName(i.topic)} · <span class="${i.status==='right'?'ok':i.status==='wrong'?'no':'wait'}">${{new:'UNPITCHED',pitched:'PITCHED · '+Math.max(0,i.pday+3-S.day)+'d',right:'RIGHT '+pct(i.move*100),wrong:'WRONG '+pct(i.move*100)}[i.status]}</span><br><small style="color:var(--ink-2)">${i.text}</small></div>`).join('')||'<div style="font-size:13px;color:var(--ink-2)">Nothing yet. Read: insights fall out of reading.</div>';
@@ -917,34 +947,57 @@ function hud(){ $('hDay').textContent=`Day ${S.day} · ${DAYS[(S.day-1)%5]}`; $(
 const P={x:S.player.x, y:S.player.y, fx:S.player.x, fy:S.player.y, dir:S.player.dir||'down', moving:false, path:[], after:null};
 const npcAt=(x,y)=>NPCS.find(n=>n.x===x&&n.y===y);
 const blocked=(x,y)=>solid(tile(x,y))||!!npcAt(x,y);
-function tryMove(dx,dy){ if (dlg||P.moving||travelling) return; P.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; const nx=P.x+dx, ny=P.y+dy; if (blocked(nx,ny)) return; P.x=nx; P.y=ny; P.moving=true; }
+function tryMove(dx,dy){ if (dlg||P.moving||travelling) return; P.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; const nx=P.x+dx, ny=P.y+dy; if (blocked(nx,ny)) return; P.px=P.x; P.py=P.y; P.x=nx; P.y=ny; P.moving=true; }
 function facing(){ const d={left:[-1,0],right:[1,0],up:[0,-1],down:[0,1]}[P.dir]; return {x:P.x+d[0], y:P.y+d[1]}; }
 const platformAt=(x,y)=>(SC.platforms||[]).find(p=>y===p.y&&x>=p.x0&&x<=p.x1);
-function canAct(){ const f=facing(); const c=tile(f.x,f.y); return !!npcAt(f.x,f.y) || interactable(c) || c==='O' || !!platformAt(f.x,f.y) || (SC.k==='home'&&c==='W'); }
-function act(){ if (dlg||travelling) return; const f=facing(); const n=npcAt(f.x,f.y); if (n){ n.dir={left:'right',right:'left',up:'down',down:'up'}[P.dir]; return DIALOG[n.id](n); } const c=tile(f.x,f.y); if (c==='O'||platformAt(f.x,f.y)) return tryMove(f.x-P.x,f.y-P.y); if (interactable(c)||(SC.k==='home'&&c==='W')) interactTile(c); }
+const bldAt=(x,y)=>(SC.buildings||[]).find(b=>x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h);
+const landmarkAt=(x,y)=>{ const b=bldAt(x,y); return b&&b.door===false&&b.text?b:null; };
+function canAct(){ const f=facing(); const c=tile(f.x,f.y); return !!npcAt(f.x,f.y) || interactable(c) || c==='O' || !!platformAt(f.x,f.y) || (SC.k==='home'&&c==='W') || !!landmarkAt(f.x,f.y); }
+function act(){ if (dlg||travelling) return; const f=facing(); const n=npcAt(f.x,f.y); if (n){ n.dir={left:'right',right:'left',up:'down',down:'up'}[P.dir]; return DIALOG[n.id](n); } const c=tile(f.x,f.y); if (c==='O'||platformAt(f.x,f.y)) return tryMove(f.x-P.x,f.y-P.y); const lm=landmarkAt(f.x,f.y); if (lm) return doorTrigger(lm); if (interactable(c)||(SC.k==='home'&&c==='W')) interactTile(c); }
 function onArrive(){ S.player={x:P.x,y:P.y,dir:P.dir}; if (dlg||travelling) return; const c=tile(P.x,P.y); const pl=platformAt(P.x,P.y); if (c==='O'||pl){ P.path=[]; P.after=null; } if (c==='O'){ const b=SC.buildings.find(b=>b.dx===P.x&&b.dy===P.y); if (b) return doorTrigger(b); } if (pl) return stopDialog(pl.dir); }
 const held=new Set();
 const KEYS={ArrowUp:'0,-1',ArrowDown:'0,1',ArrowLeft:'-1,0',ArrowRight:'1,0',w:'0,-1',s:'0,1',a:'-1,0',d:'1,0'};
 addEventListener('keydown', e=>{ const k=KEYS[e.key]; if (k){ held.add(k); e.preventDefault(); } if (e.key==='Enter'||e.key===' '){ if (dlg){ const first=$('choices').querySelector('button'); if (first&&$('choices').children.length===1) first.click(); } else act(); e.preventDefault(); } if (e.key==='Escape'){ $('sheet').classList.remove('open'); $('mini').classList.remove('open'); } });
 addEventListener('keyup', e=>{ const k=KEYS[e.key]; if (k) held.delete(k); });
+// view + zoom. view.zoom multiplies the base scale (12 tiles across); it is a per-device preference, kept in localStorage.
+const cv=$('game'); let view={scale:3, ox:0, oy:0, zoom:1};
+try{ const z=parseFloat(localStorage.getItem('rota.zoom')); if (z>0) view.zoom=clamp(z,0.5,2.5); }catch(e){}
+function setZoom(z){ view.zoom=clamp(z,0.5,2.5); try{ localStorage.setItem('rota.zoom',view.zoom.toFixed(3)); }catch(e){} resize(); }
+$('zIn').addEventListener('click',()=>setZoom(view.zoom*1.25)); $('zOut').addEventListener('click',()=>setZoom(view.zoom/1.25));
+cv.addEventListener('wheel', e=>{ setZoom(view.zoom*(e.deltaY<0?1.1:0.9)); e.preventDefault(); }, {passive:false});
+// pointers on the canvas: one finger lifted without moving = a tap; two fingers = pinch zoom
+const ptrs=new Map(); let pinch=null, tapStart=null;
+cv.addEventListener('pointerdown', e=>{ if (e.pointerType==='touch') document.body.classList.add('touch'); ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch={d0:Math.max(20,Math.hypot(a.x-b.x,a.y-b.y)), z0:view.zoom}; tapStart=null; } else if (ptrs.size===1) tapStart={x:e.clientX,y:e.clientY,t:performance.now()}; });
+cv.addEventListener('pointermove', e=>{ const p=ptrs.get(e.pointerId); if (!p) return; p.x=e.clientX; p.y=e.clientY; if (pinch&&ptrs.size===2){ const [a,b]=[...ptrs.values()]; setZoom(pinch.z0*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d0); } });
+const endPtr=e=>{ if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId); if (ptrs.size<2) pinch=null;
+  if (ptrs.size===0){ if (tapStart&&Math.hypot(e.clientX-tapStart.x,e.clientY-tapStart.y)<14&&performance.now()-tapStart.t<700) tap(e.clientX,e.clientY); tapStart=null; } };
+cv.addEventListener('pointerup',endPtr); cv.addEventListener('pointercancel',endPtr); cv.addEventListener('pointerleave',endPtr);
+// joystick: drag the knob; the dominant axis becomes a held direction, exactly like an arrow key
+const joy=$('joy'), knob=$('knob'); let joyDir=null, joyId=null;
+function joyMove(cx,cy){ const r=joy.getBoundingClientRect(); const R=r.width/2; const dx=cx-(r.left+R), dy=cy-(r.top+R); const d=Math.hypot(dx,dy); const m=Math.min(d,R-22); knob.style.transform=d?`translate(${dx/d*m}px,${dy/d*m}px)`:''; joyDir=d<R*0.25?null:Math.abs(dx)>Math.abs(dy)?(dx<0?'-1,0':'1,0'):(dy<0?'0,-1':'0,1'); }
+joy.addEventListener('pointerdown', e=>{ document.body.classList.add('touch'); joyId=e.pointerId; try{ joy.setPointerCapture(e.pointerId); }catch(x){} joyMove(e.clientX,e.clientY); e.preventDefault(); });
+joy.addEventListener('pointermove', e=>{ if (e.pointerId===joyId) joyMove(e.clientX,e.clientY); });
+const joyEnd=e=>{ if (e.pointerId!==joyId) return; joyId=null; joyDir=null; knob.style.transform=''; };
+joy.addEventListener('pointerup',joyEnd); joy.addEventListener('pointercancel',joyEnd); joy.addEventListener('lostpointercapture',joyEnd);
+$('actBtn').addEventListener('pointerdown', e=>{ e.preventDefault(); if (dlg){ const bs=$('choices').children; if (bs.length===1) bs[0].click(); return; } act(); });
 // tap to walk (BFS)
-const cv=$('game'); let view={scale:3, ox:0, oy:0};
-cv.addEventListener('pointerdown', e=>{ if (dlg||travelling) return; const r=cv.getBoundingClientRect(); const wx=Math.floor(((e.clientX-r.left)*(cv.width/r.width)/view.scale+view.ox)/T), wy=Math.floor(((e.clientY-r.top)*(cv.height/r.height)/view.scale+view.oy)/T);
+function tap(cx,cy){ if (dlg||travelling) return; const r=cv.getBoundingClientRect(); const wx=Math.floor(((cx-r.left)*(cv.width/r.width)/view.scale+view.ox)/T), wy=Math.floor(((cy-r.top)*(cv.height/r.height)/view.scale+view.oy)/T);
   const n=npcAt(wx,wy); const c=tile(wx,wy);
   if (n || interactable(c) || (SC.k==='home'&&c==='W')){ const adj=[[0,1],[0,-1],[1,0],[-1,0]].map(([dx,dy])=>({x:wx+dx,y:wy+dy})).filter(p=>!blocked(p.x,p.y)); const path=adj.map(a=>bfs(P,a)).filter(Boolean).sort((a,b)=>a.length-b.length)[0]; if (path){ P.path=path; P.after={x:wx,y:wy}; } else if (Math.abs(wx-P.x)+Math.abs(wy-P.y)===1){ P.dir=wx<P.x?'left':wx>P.x?'right':wy<P.y?'up':'down'; act(); } return; }
   let tx=wx, ty=wy;
   if (c==='B'){ const b=SC.buildings.find(b=>wx>=b.x&&wx<b.x+b.w&&wy>=b.y&&wy<b.y+b.h); if (b){ if (b.door===false){ if (b.text) say(null,b.text); return; } tx=b.dx; ty=b.dy; } }
   else if ((c==='-'||c==='=')&&(SC.platforms||[]).length){ const p=SC.platforms.slice().sort((a,b)=>Math.abs(a.y-wy)-Math.abs(b.y-wy))[0]; tx=clamp(wx,p.x0,p.x1); ty=p.y; }
-  if (!solid(tile(tx,ty))){ const path=bfs(P,{x:tx,y:ty}); if (path) { P.path=path; P.after=null; } } });
+  if (!solid(tile(tx,ty))){ const path=bfs(P,{x:tx,y:ty}); if (path) { P.path=path; P.after=null; } } }
 function bfs(from,to){ if (from.x===to.x&&from.y===to.y) return []; const q=[[from.x,from.y]], prev=new Map([[from.x+','+from.y,null]]); let steps=0; while(q.length&&steps++<9000){ const [x,y]=q.shift(); for (const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]){ const nx=x+dx, ny=y+dy, k=nx+','+ny; if (prev.has(k)||blocked(nx,ny)) continue; prev.set(k,x+','+y); if (nx===to.x&&ny===to.y){ const path=[]; let cur=k; while(cur&&cur!==from.x+','+from.y){ const [px,py]=cur.split(',').map(Number); path.unshift({x:px,y:py}); cur=prev.get(cur); } return path; } q.push([nx,ny]); } } return null; }
 
 /* ---------- render loop ---------- */
 const ctx=cv.getContext('2d'); let frame=0, last=performance.now();
-function resize(){ const dpr=Math.min(devicePixelRatio||1,3); const w=cv.clientWidth, h=cv.clientHeight; cv.width=Math.floor(w*dpr); cv.height=Math.floor(h*dpr); view.scale=Math.max(2, Math.floor(dpr*w/(12*T))); ctx.imageSmoothingEnabled=false; }
+function resize(){ const dpr=Math.min(devicePixelRatio||1,3); const w=cv.clientWidth, h=cv.clientHeight; cv.width=Math.floor(w*dpr); cv.height=Math.floor(h*dpr); view.scale=Math.max(2, Math.round(dpr*w/(12*T)*view.zoom)); ctx.imageSmoothingEnabled=false; }
 addEventListener('resize',resize);
 function update(dt){
   if (!P.moving && !dlg && !travelling){ if (P.path.length){ const n=P.path[0]; if (!blocked(n.x,n.y)){ tryMove(n.x-P.x,n.y-P.y); P.path.shift(); if (!P.path.length && P.after){ const a=P.after; P.after=null; setTimeout(()=>{ P.dir=a.x<P.x?'left':a.x>P.x?'right':a.y<P.y?'up':'down'; act(); }, 160); } } else P.path=[]; }
-    else { const h=[...held][0]; if (h){ const [dx,dy]=h.split(',').map(Number); tryMove(dx,dy); } } }
+    else { const h=joyDir||[...held][0]; if (h){ const [dx,dy]=h.split(',').map(Number); tryMove(dx,dy); } } }
   if (P.moving){ const sp=dt*7; P.fx+=clamp(P.x-P.fx,-sp,sp); P.fy+=clamp(P.y-P.fy,-sp,sp); if (Math.abs(P.fx-P.x)<0.01&&Math.abs(P.fy-P.y)<0.01){ P.fx=P.x; P.fy=P.y; P.moving=false; onArrive(); } }
   for (const n of NPCS){ n.t+=dt; if (n.patrol && !dlg){ if (n.fx===n.x && n.fy===n.y && Math.floor(n.t)%6===0 && n.t%1<dt){ const tgt=n.patrol[Math.floor(n.t/6)%2]; const dx=Math.sign(tgt[0]-n.x), dy=Math.sign(tgt[1]-n.y); const nx=n.x+(dx||0), ny=dx?n.y:n.y+dy; if ((dx||dy)&&!blocked(nx,ny)&&!(nx===P.x&&ny===P.y)){ n.x=nx; n.y=ny; n.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; } } const sp=dt*4; n.fx+=clamp(n.x-n.fx,-sp,sp); n.fy+=clamp(n.y-n.fy,-sp,sp); } }
   const W=SC.rows[0].length; for (const c of (SC.cars||[])){ c.x+=c.dir*c.sp*dt; if (c.x>W+3) c.x=-4; if (c.x<-4) c.x=W+3; }
@@ -1020,8 +1073,8 @@ function questFor(n){ const f=SC.firm, j=S.job; if (!f||!j) return false; const 
   if (k==='rival') return j.rank>=1&&((S.ms&&S.ms.firm===f.id&&S.ms.stage>=2&&!S.flags['msRival_'+f.id]) || (!S.flags['tip_'+f.id]&&j.days-j.promoDay>=5&&affOf('rival')>-5));
   if (k==='extra'){ if (j.rank===0) return !S.flags.riskLesson; if (n.kind==='compliance') return S.flags.reportPending===f.id; if (n.kind==='quant') return !S.flags.quantModel; return !S.flags['intern_'+f.id]; }
   return false; }
-window.__dj={P,bfs,act,get S(){return S},set S(v){S=v},view,tile,go,endDay,hire,firmById,FIRMS,quarter,fresh,save,get SC(){return SC},closeDlg,travel,learn,maybeInsight,promote,demote,openSheet,stopDialog,interactTile,doorTrigger,DIALOG,get NPCS(){return NPCS},get dlg(){return dlg},get travelling(){return travelling},TOWN,HOMES,KNOW,laptop,housing,goHome,leaveHome,hud};
-function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now; frame++; update(dt); draw(); requestAnimationFrame(loop); }
+window.__dj={P,bfs,act,get S(){return S},set S(v){S=v},view,tile,go,endDay,dayRng,dayRoll,dpick,setSeed:s=>{ S.seed=s; save(); },progress,PROG_NEED,landmarkAt,bldAt,canAct,skipDays:n=>{ for (let i=0;i<n;i++){ endDay(); closeDlg(); } },TICK,say,toast,trust,aff,affOf,QUESTS,questFor,startMission,hash,hire,firmById,FIRMS,quarter,fresh,save,get SC(){return SC},closeDlg,travel,learn,maybeInsight,promote,demote,openSheet,stopDialog,interactTile,doorTrigger,DIALOG,get NPCS(){return NPCS},get dlg(){return dlg},get travelling(){return travelling},TOWN,HOMES,KNOW,laptop,housing,goHome,leaveHome,hud,setZoom,stepBack,tap,get joyDir(){return joyDir}};
+function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now; frame++; update(dt); draw(); document.body.classList.toggle('indlg', !!dlg||travelling); requestAnimationFrame(loop); }
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) save(); });
 
 /* ---------- boot ---------- */

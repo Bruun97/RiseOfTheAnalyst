@@ -8,10 +8,10 @@ All firms, people, places and prices are fictional. Some firms are affectionate 
 
 ## Play
 
-- **Touch:** tap-only. Tap anywhere to walk there. Tap a person, a desk, a sign, a door or a whole building to walk over and use it. Tap the rails to go to the platform. No d-pad.
-- **Desktop:** arrows / WASD to move, Enter or Space to interact, Esc to close menus.
+- **Touch:** a round stick bottom-left: drag it to walk. The yellow ACT button bottom-right talks to whoever you face, uses the thing in front of you, and confirms a one-button dialog. Tapping still works too: tap a tile to walk there, tap a person, a desk, a door or a whole building to walk over and use it, tap the rails to go to the platform. Pinch, or use the + / − buttons, to zoom; the level is remembered on the device.
+- **Desktop:** arrows / WASD to move, Enter or Space to interact, Esc to close menus. Mouse wheel zooms.
 - **A day** is 8 energy (more with a better flat). Duties, reading and lessons cost 1, research costs 2, coffee and food give 1 back. Sleep in your bed, or take the lift and commute home, to end the day. The market moves overnight.
-- **The commute:** Ashbury bus stop → Millbrook station → Brayford Junction platform 4 → Lombard Central. Bus $2, train $4, express $6: $12 each way. Pick the final destination at any stop and the game plays the changes for you; or get off at an intermediate town and look around. Read on the train for 1 energy and a knowledge point. A season ticket ($220, 30 days) covers bus, trains and the tube. Moving house towards the city shortens the commute.
+- **The commute:** Ashbury bus stop → Millbrook station → Brayford Junction platform 4 → Lombard Central. Bus $2, train $4, express $6: $12 each way. Pick the final destination at any stop and the game plays the changes for you (a short fade with the train's name between towns); or get off at an intermediate town and look around. Choosing Wait steps you back off the platform. Read on the train for 1 energy and a knowledge point. A season ticket ($220, 30 days) covers bus, trains and the tube. Moving house towards the city shortens the commute.
 - **Money:** rent is due every Monday. Fall two weeks behind and you are evicted. The junior's salary is $95 a day; after commute and rent there is not much left. The Financial Ledger costs $3 and is worth it.
 - **The junior loop:** post round, printer, coffee round, each once a day, each +2 trust. The shelf, the research notes on Marcus's spare chair, the paper on the train, the library in Millbrook and your laptop all raise one of six knowledge topics (Accounting, Valuation, Macro, Markets, Risk, Sectors, 0–10 each). Reading sometimes produces an **insight**: a directional call on a stock. Pitch it to Susan (safe) or Lawrence (bigger swing). Three days later the tape decides: right calls add trust and reputation, wrong ones cost a little. The terminal is off limits until trust 25.
 - **Promotion to Analyst:** trust 40, knowledge 10, two correct calls. Lawrence hands you the yellow desk and a $20M book.
@@ -43,7 +43,7 @@ Pay by rank at BlackBoulder: $95 (Office Junior), $420, $780, $1,500, $3,200 per
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The whole game: CSS, maps, sprites, firms, dialogue, market sim, save/load. ~145 KB. |
+| `index.html` | The whole game: CSS, maps, sprites, firms, dialogue, market sim, save/load. ~152 KB. |
 | `manifest.json` | PWA manifest: name, standalone display, portrait lock, icons. |
 | `sw.js` | Service worker. Own files network-first with cache fallback (works offline after first visit); fonts cache-first. Bump `CACHE` when you ship a new version. |
 | `icon-180.png` | iOS home-screen icon. |
@@ -55,7 +55,7 @@ Put the folder contents in the root of a GitHub Pages repo (Settings → Pages �
 
 On iPhone: open in Safari → Share → Add to Home Screen. Runs full screen without browser chrome. Safari-tab storage and home-screen-app storage are separate, so a save made in the tab does not carry over to the installed app.
 
-Saves live in `localStorage` under the key `rota.v3`. Nothing leaves the device. Older `rota.v2` saves are ignored.
+Saves live in `localStorage` under the key `rota.v4` (zoom level under `rota.zoom`). Nothing leaves the device. A `rota.v3` save is upgraded in place the first time the new version loads; older saves are ignored. Every save carries a `seed`: anything the world decides (which facts appear where, which event happens, who says what) is drawn from a stream keyed on the seed and the day, so reloading never rerolls a day. Only market noise is unseeded.
 
 ## How `index.html` is organised
 
@@ -69,12 +69,12 @@ Everything lives in one `<script>` IIFE. Sections, in order:
 6. **State `S`** – everything that is saved: day, energy, cash, stats, `job` (firm, rank, trust, firm reputation, quarter P&L, rival P&L, days, promoDay), `know` (six topics), `insights` (the log: new → pitched → right/wrong), `reads`, `paper`, firm positions `pos`, personal holdings `ppos`, prices, home tier, study points and certificates, the active earnings case `ms`, the insider flag, the current scene and player position. `flags.daily` is cleared every night.
 7. **Reading and insights** – `learn(topic, n, src)`, `maybeInsight()`, `readMenu()`.
 8. **Quests** – `QUESTS` is derived from state, so quests never desync.
-9. **Scenes and the commute** – `buildScene()`, `spawnNPCs()`, `spawnTraffic()`, `go()`, `goHome()`, `leaveHome()`. `stopDialog(dir)` lists destinations in one direction from the current stop; `travel(j, read, then)` pays, plays the montage through the intermediate towns and arrives. `tubeMenu()` is the Underground.
+9. **Scenes and the commute** – `buildScene()`, `spawnNPCs()`, `spawnTraffic()`, `go()`, `goHome()`, `leaveHome()`. `stopDialog(dir)` lists destinations in one direction from the current stop; `travel(j, read, then)` pays, plays the montage through the intermediate towns (fade overlay `#fade` between legs) and arrives facing the stop (`ARRIVE` holds x, y, facing). `stepBack()` is the Wait option: back to the tile you came from, only if you are on a platform or a door. `tubeMenu()` is the Underground.
 10. **Dialogue** – `say(npc, text, choices)` with typewriter text. `DIALOG.boss/mentor/rival/extra` branch on rank. `pitchMenu()`, `pitch()`, `promote()`. The earnings case (`startMission`, `clueText`) and the insider tip live here.
 11. **Objects and places** – `interactTile()` for office, home, bus stop and tube; `doorTrigger()` for buildings; `homeDoor()`, `bookies()`, `reception()` and `interview()` (hiring firms only), café, pub, library, institute, the laptop (knowledge book, reading, study, brokerage, housing, season ticket, founding your own fund).
 12. **Desk** – `deskMenu()` and the research minigame `openResearch()`, which shows your insight notes for the ticker.
 13. **Day cycle** – `endDay()` moves prices, resolves pitched insights, marks positions, pays salary, collects rent, resolves the earnings event, checks eviction, the regulator and the demotion threshold, and triggers `quarter()` every 12 working days. `demote()` sends you back to the post room.
-14. **Menu sheet (with the knowledge book), HUD, input, render loop (`drawBuilding()` by style: glass, steel, stone, gherkin, spire, tower, shed, station, shop, brick), boot.**
+14. **Menu sheet (with the knowledge book), HUD, input, render loop (`drawBuilding()` by style: glass, steel, stone, gherkin, spire, tower, shed, station, shop, brick), boot.** Input: keyboard `held` set; the joystick `#joy` sets `joyDir`, which `update()` treats like a held key; the ACT button calls `act()`; canvas pointers are tracked in `ptrs` so a single finger lifted in place is a tap (`tap()`, BFS walk) and two fingers are a pinch (`setZoom()`); `view.zoom` multiplies the base scale of 12 tiles across and lives in `localStorage` as `rota.zoom`. The stick and button are shown on coarse pointers (`@media (pointer:coarse)`) or after the first touch, and hidden while a dialog or the montage is up.
 
 `window.__dj` exposes `S`, `P`, `go`, `travel`, `learn`, `maybeInsight`, `promote`, `demote`, `endDay`, `quarter`, `DIALOG`, `interactTile`, `doorTrigger` and more for debugging and automated tests.
 
