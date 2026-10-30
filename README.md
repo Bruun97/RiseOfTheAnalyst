@@ -95,3 +95,4 @@ Switch the other twelve firms on, with poaching once your reputation is known. M
 ## Credits
 
 Fonts: Silkscreen and IBM Plex Sans via Google Fonts. Everything else is drawn in code. All companies, people and prices are fictional.
+Made with AI
