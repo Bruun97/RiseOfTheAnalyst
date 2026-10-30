@@ -75,7 +75,20 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);over
 .row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border:2px solid var(--line);background:var(--ui);padding:8px 10px;margin:6px 0;font-size:14px}
 .row small{display:block;color:var(--ink-2);font-size:12px}
 .row .ok{color:var(--green);font-family:var(--pix);font-size:10px}.row .no{color:var(--red);font-family:var(--pix);font-size:10px}
-@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+/* touch controls: a round stick bottom-left, one action button bottom-right. Shown on coarse pointers or after the first touch. */
+#joy{position:absolute;left:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));width:124px;height:124px;border-radius:50%;background:rgba(13,15,22,.55);border:2px solid var(--line);box-shadow:2px 2px 0 #000;touch-action:none;z-index:6;display:none}
+#joy::before{content:"";position:absolute;inset:34px;border-radius:50%;border:2px dashed rgba(168,173,189,.35)}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:var(--ui2);border:2px solid var(--gold);box-shadow:2px 2px 0 #000;pointer-events:none}
+#actBtn{position:absolute;right:18px;bottom:calc(34px + env(safe-area-inset-bottom,0px));width:70px;height:70px;border-radius:50%;background:rgba(245,197,66,.92);color:#2b1d05;border:2px solid #000;font-family:var(--pix);font-size:11px;font-weight:700;box-shadow:3px 3px 0 #000;z-index:6;touch-action:none;display:none}
+#actBtn:active{transform:translate(1px,1px);box-shadow:2px 2px 0 #000}
+@media (pointer:coarse){#joy,#actBtn{display:block}}
+body.touch #joy,body.touch #actBtn{display:block}
+body.indlg #joy,body.indlg #actBtn{display:none}
+#zoom{position:absolute;right:8px;top:calc(env(safe-area-inset-top,0px) + 54px);display:flex;flex-direction:column;gap:4px;z-index:4}
+#zoom button{width:34px;height:34px;font-family:var(--pix);font-size:14px;background:rgba(13,15,22,.85);color:var(--ink);border:2px solid var(--line);box-shadow:2px 2px 0 #000;padding:0}
+#fade{position:absolute;inset:0;background:#05060a;opacity:0;transition:opacity .3s;pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;text-align:center;font-family:var(--pix);font-size:12px;color:var(--gold);white-space:pre-line;line-height:1.8}
+#fade.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.toast,#fade{transition:none}}
 [hidden]{display:none!important}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:#0d0f16}
 </style>
@@ -88,6 +101,10 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
       <div class="box"><span id="hDay">Day 1 · Mon</span><small id="hRank">Office Junior</small></div>
       <div class="right"><div class="box"><span class="en" id="hEnergy">●●●●●●●●</span><small>energy</small></div><div class="box"><span id="hCash">$400</span><small id="hBook">—</small></div><button id="menuBtn" aria-label="Menu">MENU</button></div>
     </div>
+    <div id="fade"></div>
+    <div id="zoom"><button id="zIn" aria-label="Zoom in">+</button><button id="zOut" aria-label="Zoom out">−</button></div>
+    <div id="joy"><div id="knob"></div></div>
+    <button id="actBtn" aria-label="Act">ACT</button>
     <div class="toast" id="toast"></div>
     <div class="sheet" id="sheet"><button class="close" id="sheetClose">CLOSE</button><div id="sheetBody"></div></div>
     <div class="mini" id="mini"></div>
@@ -97,10 +114,16 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
 
 <script>
 (() => {
-const KEY='rota.v3', T=16;
+const KEY='rota.v4', OLD_KEY='rota.v3', SAVE_V=5, T=16;
 const $=id=>document.getElementById(id);
 const rnd=()=>Math.random(), gauss=()=>{ let u=0,v=0; while(!u)u=rnd(); while(!v)v=rnd(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), pick=a=>a[Math.floor(rnd()*a.length)];
+// Seeded randomness for everything the WORLD decides (which facts, which events, who says what): the same save on the same day always draws
+// the same things, so a reload can never reroll a day. rnd() stays unseeded and is for market noise and cosmetics only.
+const mulberry32=a=>()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+const dayRng=(tag,day)=>mulberry32(hash(`${S.seed}:${day==null?S.day:day}:${tag}`));   // a fresh stream per (save, day, tag)
+const dayRoll=(tag,day)=>dayRng(tag,day)();                                             // one [0,1) number
+const dpick=(r,a)=>a[Math.floor(r()*a.length)];                                         // pick with a given stream
 const money=v=>(v<0?'−':'')+'$'+Math.round(Math.abs(v)).toLocaleString('en-US');
 const moneyM=v=>{ const a=Math.abs(v); const s=a>=1e9?(a/1e9).toFixed(1)+'B':a>=1e6?(a/1e6).toFixed(1)+'M':Math.round(a/1e3)+'k'; return (v<0?'−':'')+'$'+s; };
 const pct=v=>(v>0?'+':v<0?'−':'')+Math.abs(v).toFixed(1)+'%';
@@ -301,13 +324,53 @@ const topicName=k=>KNOW.find(t=>t.k===k).t;
 const KNOW_TITLES=[[0,'Blank slate'],[6,'Reader'],[14,'Student'],[24,'Practitioner'],[36,'Expert'],[50,'Oracle']];
 const PROMO_NEED={trust:40, know:10, calls:2};
 const BOOKS=[{t:'Security Analysis (1934 edition, coffee rings)', k:'valuation'},{t:'Financial Shenanigans', k:'accounting'},{t:'This Time Is Different', k:'macro'},{t:'The Intelligent Allocator', k:'risk'},{t:'Reminiscences of a Stock Operator', k:'markets'},{t:'Competitive Strategy, the annotated copy', k:'sectors'}];
-const INSIGHT_TEXT={
- accounting:{pos:['{n}: cash conversion ahead of profit two quarters running. The earnings are real.','{n}: receivables falling while sales grow. Clean numbers, and nobody has noticed.'], neg:['{n}: receivables growing twice as fast as sales. Someone is stuffing the channel.','{n} has started capitalising costs it used to expense. The margin is make-up.']},
- valuation:{pos:['{n} trades on nine times cash flow with net cash on the balance sheet. The market has fallen asleep.','{n}: the sum of the parts is worth half as much again as the whole. A spin-off would show it.'], neg:['{n} is priced for growth it has never delivered. Forty times earnings for a flat top line.','{n}: the bull case needs margins nobody in the sector has ever had.']},
- macro:{pos:['Rates are topping out, and {n} is the most rate-sensitive name in the index.','A weaker dollar helps {n} more than anyone: two thirds of sales abroad, costs at home.'], neg:['A strong dollar hits {n} first: half its sales are abroad and unhedged.','{n} borrows short and lends long. The yield curve just stopped being its friend.']},
- markets:{pos:['{n}: heavy volume on up days, light on down days. Someone big is accumulating.','{n} short interest is at 20% and the stock has stopped falling. Squeeze material.'], neg:['{n}: every rally sold into by lunch. Distribution, not a dip.','{n} just dropped out of two indices. The forced sellers haven\'t finished.']},
- risk:{pos:['{n} refinanced early at fixed rates. One of the few balance sheets that sleeps at night.','{n}: net cash, no covenants, and a buyback. The downside is already priced.'], neg:['{n} has a covenant test next quarter and the margin for error is thin.','{n}: the hedges roll off in a month and nobody has renewed them.']},
- sectors:{pos:['Channel checks on {n}: distributors are reordering early. Demand is stronger than guidance.','{n} just raised prices and lost no customers. That is what a moat looks like.'], neg:['{n}\'s biggest customer has signed with a competitor. It is in a footnote.','{n}: the whole sector is adding capacity at once. Prices only go one way from here.']},
+/* ---------- facts, sources and theses. A fact has a topic and a level: below the level you see the dim version and cannot cite it; at the level
+   you can read and cite it; three levels above you also get the expert line (ok confirms a signal, bad exposes a trap). Templates are neutral until
+   the day's draw decides which claim they make: see todayFact(). ---------- */
+const NOISE_LINE='True, probably. Also irrelevant to the price.';
+const FACT_TEMPLATES=[
+ {id:'A1',topic:'accounting',lvl:2,pos:"{n}: cash conversion ahead of profit two quarters running. The earnings are real.",neg:"{n}: receivables growing twice as fast as sales. Someone is stuffing the channel.",dim:"{n}'s accounts. Pages of numbers. Something about receivables, you think.",ok:"Inventory is flat too. Nobody is building stock to flatter it.",bad:"The comparison quarter had thirteen weeks against twelve. The number is flattered."},
+ {id:'A2',topic:'accounting',lvl:3,pos:"{n} has started expensing what it used to capitalise. The margin is lower and more honest.",neg:"{n} has started capitalising costs it used to expense. The margin is make-up.",dim:"A note in {n}'s accounts about 'development costs'. You cannot tell which way it cuts.",ok:"Same auditor, clean opinion, no emphasis of matter.",bad:"New auditor this year. The old one 'resigned'. That word is doing a lot of work."},
+ {id:'A3',topic:'accounting',lvl:4,pos:"{n}: the pension deficit has closed and the cash sweep ends next quarter. Free cash flow doubles.",neg:"{n} has a covenant test next quarter and the margin for error is thin.",dim:"Footnote 23 of {n}'s accounts runs to four pages. You get to page one.",ok:"The appendix shows the lenders have already waived the test.",bad:"The appendix shows the waiver request was refused in March."},
+ {id:'A4',topic:'accounting',lvl:1,pos:"{n} raised the dividend. Boards do not do that before bad news.",neg:"{n} cut the dividend 'to invest in growth'. Boards do not say that when the growth is real.",dim:"Something about {n}'s dividend.",ok:"Covered twice over by free cash flow.",bad:"It has not been covered by free cash flow for three years. The raise is borrowed."},
+ {id:'V1',topic:'valuation',lvl:2,pos:"{n} trades on nine times cash flow with net cash on the balance sheet. The market has fallen asleep.",neg:"{n} is priced for growth it has never delivered. Forty times earnings for a flat top line.",dim:"A table of multiples for {n}. The numbers mean nothing to you yet.",ok:"The cash flow is before a one-off, not after it.",bad:"The 'cash flow' in the table includes a disposal. Strip it out and the multiple doubles."},
+ {id:'V2',topic:'valuation',lvl:3,pos:"{n}: the sum of the parts is worth half as much again as the whole. A spin-off would show it.",neg:"{n}: the bull case needs margins nobody in the sector has ever had.",dim:"A sum-of-the-parts note on {n} with a lot of assumptions in small print.",ok:"The parts are valued on peers that actually trade.",bad:"Two of the 'parts' are valued on private deals from the top of the cycle."},
+ {id:'V3',topic:'valuation',lvl:4,pos:"{n} buys back 6% of itself a year below book value. Every share you own gets bigger.",neg:"{n} issues shares every time the price ticks up. Every share you own gets smaller.",dim:"{n}'s share count has changed. You cannot work out by how much.",ok:"Book value is tangible: plant, cash, receivables.",bad:"Book value is mostly goodwill from an acquisition nobody mentions any more."},
+ {id:'V4',topic:'valuation',lvl:1,pos:"{n} is cheaper than every peer on every measure and the business is not worse.",neg:"{n} is dearer than every peer on every measure and the business is not better.",dim:"A peer table for {n}.",ok:"The peers are real peers: same customers, same margins.",bad:"Half the 'peers' are in a different business. The table was built to make a point."},
+ {id:'M1',topic:'macro',lvl:2,pos:"Rates are topping out, and {n} is the most rate-sensitive name in the index.",neg:"Rates are going higher for longer, and {n} borrows short and lends long.",dim:"Something about rates and {n}. The Bank of Albion is involved.",ok:"The sensitivity is in the last annual report, in {n}'s own numbers.",bad:"The sensitivity figure is from a broker, not from {n}, and it is three years old."},
+ {id:'M2',topic:'macro',lvl:3,pos:"A weaker dollar helps {n} more than anyone: two thirds of sales abroad, costs at home.",neg:"A strong dollar hits {n} first: half its sales are abroad and unhedged.",dim:"Currency tables and {n}'s name in a footnote.",ok:"Unhedged, by their own admission, in the risk section.",bad:"They hedge twelve months forward. It is in the risk section. The effect is a year away."},
+ {id:'M3',topic:'macro',lvl:4,pos:"Freight rates have turned up for the first time in a year. {n} is the first to feel it.",neg:"Input costs are rising faster than {n} can pass them on. The squeeze lasts two quarters.",dim:"A chart of some index with {n} written under it.",ok:"{n}'s contracts reprice quarterly. The index moves straight into revenue.",bad:"{n}'s contracts are fixed for two years. The index does not reach them yet."},
+ {id:'M4',topic:'macro',lvl:1,pos:"The consumer is still spending and {n} sells to the consumer.",neg:"The consumer has stopped spending and {n} sells to the consumer.",dim:"A line about the consumer and {n}.",ok:"{n}'s customer is the median household, exactly where the data is strong.",bad:"{n}'s customer is the top decile, which this survey does not cover."},
+ {id:'K1',topic:'markets',lvl:1,pos:"{n}: heavy volume on up days, light on down days. Someone big is accumulating.",neg:"{n}: every rally sold into by lunch. Distribution, not a dip.",dim:"The {t} tape. Numbers scrolling. Green, then red, then green.",ok:"The pattern holds for three weeks, not three days.",bad:"Three days of data. An index rebalance explains all of it."},
+ {id:'K2',topic:'markets',lvl:2,pos:"{n} short interest is at 20% and the stock has stopped falling. Squeeze material.",neg:"{n} just dropped out of two indices. The forced sellers haven't finished.",dim:"A positioning note on {t} full of words like 'crowded'.",ok:"Borrow cost is rising. The shorts are paying to stay.",bad:"Most of the 'short interest' is a hedge against the convertible. Nobody is betting against it."},
+ {id:'K3',topic:'markets',lvl:3,pos:"Three {n} directors bought in the open window. People don't buy before bad news.",neg:"Two {n} directors sold before the blackout. People rarely sell before good news.",dim:"A list of insider dealings in {t}. You cannot tell the buys from the sells.",ok:"Open-market purchases with their own money, not option exercises.",bad:"The 'sales' were shares sold to cover tax on vesting. Automatic. Meaningless."},
+ {id:'K4',topic:'markets',lvl:4,pos:"{n}'s options are pricing a 4% move on results. The stock has moved 12% on each of the last four.",neg:"{n}'s options are pricing a 15% move. The last four results moved it 3%. Someone knows something, or thinks they do.",dim:"An options chain for {t}. Greek letters.",ok:"The implied move is cheap against every one of the last eight prints.",bad:"A single large trade set that price. One desk, one view."},
+ {id:'R1',topic:'risk',lvl:2,pos:"{n} refinanced early at fixed rates. One of the few balance sheets that sleeps at night.",neg:"{n}: the hedges roll off in a month and nobody has renewed them.",dim:"{n}'s debt schedule. A wall of dates and coupons.",ok:"Nothing due for four years.",bad:"The 'fixed' rate resets in eighteen months. Fixed for now."},
+ {id:'R2',topic:'risk',lvl:3,pos:"{n}: net cash, no covenants, and a buyback. The downside is already priced.",neg:"{n} has one customer for 40% of revenue and the contract is up for renewal.",dim:"A risk-factors section in {n}'s report. It is long. They all are.",ok:"The cash is onshore and unencumbered.",bad:"The cash sits in a subsidiary that cannot pay it up. It is in note 31."},
+ {id:'R3',topic:'risk',lvl:4,pos:"{n}'s worst quarter in ten years would still cover its interest three times.",neg:"One bad quarter and {n} breaches. The lenders know it; the equity doesn't yet.",dim:"An interest-cover calculation for {n} that you cannot follow.",ok:"Calculated on reported profit, not adjusted.",bad:"Calculated on 'adjusted' profit. The adjustments are half the number."},
+ {id:'R4',topic:'risk',lvl:1,pos:"{n} has been through two recessions without a loss.",neg:"{n} has never been through a recession at all.",dim:"{n}'s history, in a paragraph.",ok:"Same management through both.",bad:"Different business then. They sold the part that survived."},
+ {id:'S1',topic:'sectors',lvl:1,pos:"Channel checks on {n}: distributors are reordering early. Demand is stronger than guidance.",neg:"{n}'s biggest customer has signed with a competitor. It is in a footnote.",dim:"Industry gossip about {n}.",ok:"Three distributors, three countries, same story.",bad:"One distributor, who is also long the stock."},
+ {id:'S2',topic:'sectors',lvl:2,pos:"{n} just raised prices and lost no customers. That is what a moat looks like.",neg:"{n}: the whole sector is adding capacity at once. Prices only go one way from here.",dim:"A note on pricing in {n}'s industry.",ok:"Volumes are up as well as prices.",bad:"Volumes fell 8%. The customers who stayed are the ones who could not leave yet."},
+ {id:'S3',topic:'sectors',lvl:3,pos:"{n}'s new product is on back-order in three countries.",neg:"{n}'s new product is being discounted at launch. That is not a launch, that is a clearance.",dim:"A product review that mentions {n}.",ok:"Back-order because of demand, not because the factory is down.",bad:"Back-order because the factory is down. Demand is unknown."},
+ {id:'S4',topic:'sectors',lvl:4,pos:"Regulators have waved through {n}'s biggest rival's merger with conditions that help {n}.",neg:"A regulator has opened a file on {n}'s industry. These take two years and cost margin all the way.",dim:"A legal update that mentions {n}'s sector.",ok:"The conditions name {n}'s product category.",bad:"The file concerns a market {n} exited last year."},
+];
+/* Every source has an agenda. primary never lies but needs more knowledge to read; experts are right inside their specialty; media, brokers and
+   the café talk their book; Marcus wants you to fail. The player learns this from the Sources page (a track record) and from being burned. */
+const PROFILES={ primary:{sig:1,trap:0,noise:0}, expert:{sig:0.85,trap:0.10,noise:0.05}, media:{sig:0.45,trap:0.35,noise:0.20}, book:{sig:0.50,trap:0.40,noise:0.10}, hostile:{sig:0.30,trap:0.60,noise:0.10} };
+const SOURCES={
+  pack:    {name:'The morning pack',      where:'the printer',          profile:'primary', topics:['accounting','sectors'],          lvl:[2,4]},
+  tape:    {name:'The terminal',          where:'the terminal',         profile:'primary', topics:['markets'],                       lvl:[1,4]},
+  online:  {name:'Annual reports',        where:'your laptop',          profile:'primary', topics:['accounting','valuation','risk'], lvl:[3,4]},
+  ledger:  {name:'The Financial Ledger',  where:'the train',            profile:'media',   topics:['macro','markets'],               lvl:[1,3]},
+  paper:   {name:'The free paper',        where:'the train',            profile:'media',   topics:['markets','macro'],               lvl:[1,2]},
+  notes:   {name:'Sell-side notes',       where:"Marcus's spare chair", profile:'book',    topics:['sectors','valuation'],           lvl:[1,3]},
+  susan:   {name:'Susan Park',            where:'the whiteboard',       profile:'expert',  topics:['valuation','accounting'],        lvl:[2,4]},
+  ingrid:  {name:'Ingrid Weiss',          where:'the risk corner',      profile:'expert',  topics:['accounting','risk'],             lvl:[2,4]},
+  marcus:  {name:'Marcus Reed',           where:'the kitchen',          profile:'hostile', topics:['markets','sectors','valuation'], lvl:[1,2]},
+  floor:   {name:'The floor',             where:'the post round',       profile:'media',   topics:['markets','sectors'],             lvl:[1,2]},
+  cafe:    {name:'Café Liquidity',        where:'the next table',       profile:'book',    topics:['sectors','valuation','markets'], lvl:[1,3]},
+  pub:     {name:'The Counting House',    where:'the bar',              profile:'book',    topics:['markets','macro'],               lvl:[1,3]},
+  regular: {name:'The man with the form', where:'Lucky 7',              profile:'book',    topics:['risk','sectors'],                lvl:[1,2], only:'TRD'},
 };
 
 /* ---------- maps ---------- */
@@ -372,7 +435,7 @@ function mkAshbury(){
   bld(g,B,{id:'t4',x:27,y:5,w:3,h:3,style:'brick',color:'#5a3a2a',label:'',door:false,text:'A terrace with net curtains. The curtains move.'});
   bld(g,B,{id:'t5',x:30,y:5,w:3,h:3,style:'brick',boarded:true,color:'#4a3028',label:'',door:false,text:'Fire damage. Nobody talks about it.'});
   bld(g,B,{id:'home1',x:2,y:12,w:5,h:6,kind:'home',tier:1,style:'tower',color:'#5a5e66',label:'CARVER TOWER'});
-  bld(g,B,{id:'anchor',x:19,y:14,w:6,h:4,kind:'anchor',style:'shop',boarded:true,color:'#4a2a2a',sign:'#3a2a2a',label:'THE ANCHOR',door:false});
+  bld(g,B,{id:'anchor',x:19,y:14,w:6,h:4,kind:'anchor',style:'shop',boarded:true,color:'#4a2a2a',sign:'#3a2a2a',label:'THE ANCHOR',door:false,text:'The Anchor. Boarded up since the brewery pulled out. Someone has written RIP on the door, and under it, GOOD.'});
   return {rows:g.map(r=>r.join('')), buildings:B, bus:{dir:1}, platforms:[], lanes:[{y:1,dir:-1,n:1,bus:true},{y:2,dir:1,n:1,bus:true}]};
 }
 /* Millbrook. A market town with hanging baskets. The first change. */
@@ -458,7 +521,7 @@ const TOWN_NAMES={ashbury:'Ashbury', millbrook:'Millbrook', brayford:'Brayford J
 const LINE=['ashbury','millbrook','brayford','city'];
 const LEGS=[{mode:'bus', fare:2, out:'the 7:05 bus', back:'the 18:40 bus'},{mode:'train', fare:4, out:'the 7:31 stopping train', back:'the 18:12 train'},{mode:'train', fare:6, out:'the 7:58 express', back:'the 17:48 express'}];
 // where you stand when you step off, by direction of travel (e: heading east into the city, w: heading west, home)
-const ARRIVE={ashbury:{w:[17,3]}, millbrook:{e:[15,18], w:[16,3]}, brayford:{e:[16,3], w:[16,14]}, city:{e:[10,49]}};
+const ARRIVE={ashbury:{w:[17,3,'left']}, millbrook:{e:[15,18,'left'], w:[16,3,'up']}, brayford:{e:[16,3,'up'], w:[16,14,'down']}, city:{e:[10,49,'up']}};
 const STOP_TEXT={
  ashbury:{e:'Ashbury bus stop. The shelter has no glass and the timetable has a phone number scratched into it. The 7:05 to Millbrook station is late, which counts as on time.'},
  millbrook:{e:'Millbrook station. One platform, hanging baskets, a man with a flag. The 7:31 stopping train to Brayford Junction.', w:'Millbrook, the bus stop by the green. The 18:40 to Ashbury, when it comes.'},
@@ -474,14 +537,18 @@ const HOMES=[
  {t:'Riverside flat, Lombard City', town:'city', bld:'home3', rent:3200, deposit:20000, energy:11, desc:'Ninth floor, glass on three sides, the river underneath and the office across the bridge. No commute at all. +3 energy per day.'}];
 const PASS_COST=220, PASS_DAYS=30, TUBE_FARE=3;
 let S;
-function fresh(){ const s={ day:1, energy:8, cash:400, rep:5, xp:0, lvl:1, pts:0, stats:{analysis:2,charm:2,nerve:2},
+function fresh(){ const s={ v:SAVE_V, seed:Math.floor(Math.random()*2147483647), day:1, energy:8, cash:400, rep:5, xp:0, lvl:1, pts:0, stats:{analysis:2,charm:2,nerve:2}, prog:{analysis:0,charm:0,nerve:0},
     job:{firm:'blackboulder', rank:0, trust:10, frep:0, pnlQ:0, rivalPnl:0, days:0, met:false, boost:false, cut:false, promoDay:0},
-    know:{}, insights:[], reads:0, paper:false, pos:{}, ppos:{}, px:{}, hist:{}, drift:{}, signals:{}, aff:{}, flags:{daily:{}}, home:{tier:0, pass:0}, study:{pts:0, cert:0}, cooldown:{}, cv:[], ms:null, insider:null, scene:{k:'home'}, player:{x:3,y:4,dir:'down'}, over:null };
+    know:{}, insights:[], facts:[], src:{}, reads:0, paper:false, pos:{}, ppos:{}, px:{}, hist:{}, drift:{}, aff:{}, flags:{daily:{}}, home:{tier:0, pass:0}, study:{pts:0, cert:0}, cooldown:{}, cv:[], ms:null, insider:null, scene:{k:'home'}, player:{x:3,y:4,dir:'down'}, over:null };
   for (const t of KNOW) s.know[t.k]=0;
-  for (const k of TICK){ s.px[k.t]=40+rnd()*160; s.hist[k.t]=[]; s.drift[k.t]=(rnd()-0.5)*0.02; s.pos[k.t]=0; s.ppos[k.t]=0; for (let i=0;i<30;i++){ s.px[k.t]*=1+s.drift[k.t]*0.5+k.vol*gauss(); s.hist[k.t].push(s.px[k.t]); } }
+  for (const k of TICK){ s.px[k.t]=40+rnd()*160; s.hist[k.t]=[]; s.drift[k.t]=(rnd()<0.5?-1:1)*(0.003+rnd()*0.007); s.pos[k.t]=0; s.ppos[k.t]=0; for (let i=0;i<30;i++){ s.px[k.t]*=1+s.drift[k.t]*0.5+k.vol*gauss(); s.hist[k.t].push(s.px[k.t]); } }
   return s; }
 const save=()=>{ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} };
-const load=()=>{ try{ const j=localStorage.getItem(KEY); if(j){ const o=JSON.parse(j); if (o&&o.player&&o.scene&&o.know&&o.job) return o; } }catch(e){} return null; };
+// migrate(): upgrade an older save in place. Every new field added to fresh() in later versions gets its default here too.
+const migrate=o=>{ if (!o.v||o.v<4){ o.v=4; if (o.seed==null) o.seed=Math.floor(Math.random()*2147483647); } if (!o.prog) o.prog={analysis:0,charm:0,nerve:0};
+  if (o.v<5){ o.v=5; o.facts=o.facts||[]; o.src=o.src||{}; delete o.signals; for (const k of TICK){ const d=o.drift[k.t]||0; if (Math.abs(d)<0.003){ const r=mulberry32(hash(o.seed+':drift:'+k.t)); o.drift[k.t]=(d<0?-1:1)*(0.003+r()*0.007); } } }
+  return o; };
+const load=()=>{ for (const key of [KEY, OLD_KEY]){ try{ const j=localStorage.getItem(key); if(j){ const o=JSON.parse(j); if (o&&o.player&&o.scene&&o.know&&o.job) return migrate(o); } }catch(e){} } return null; };
 S=load()||fresh();
 const firm=()=>S.job?firmById(S.job.firm):null;
 const rankName=()=>{ const f=firm(); if (!f) return 'Unemployed'; return S.job.rank>=TOP?f.top:RANKS[S.job.rank].t; };
@@ -491,6 +558,9 @@ const isJunior=()=>!!S.job&&S.job.rank===0;
 const maxEnergy=()=>HOMES[S.home.tier].energy;
 const xpNeed=()=>S.lvl*80;
 function gainXp(n){ S.xp+=n; while (S.xp>=xpNeed()){ S.xp-=xpNeed(); S.lvl++; S.pts++; toast(`LEVEL ${S.lvl}! +1 stat point (MENU)`); } }
+// Stats grow by doing, not by lottery: every PROG_NEED[stat] units of progress is +1 to the stat. The MENU shows the counter.
+const PROG_NEED={analysis:6, charm:4, nerve:3};
+function progress(stat, n=1){ S.prog=S.prog||{analysis:0,charm:0,nerve:0}; S.prog[stat]=(S.prog[stat]||0)+n; if (S.prog[stat]>=PROG_NEED[stat]){ S.prog[stat]-=PROG_NEED[stat]; S.stats[stat]++; toast(`+1 ${stat[0].toUpperCase()+stat.slice(1)}`); return true; } return false; }
 function useEnergy(n){ if (S.energy<n){ toast('Too tired. Go home and sleep.'); return false; } S.energy-=n; hud(); return true; }
 const daily=k=>!!S.flags.daily[k];
 const setDaily=(k,v=true)=>{ S.flags.daily[k]=v; };
@@ -513,28 +583,66 @@ function reqs(f){ const r=f.req||{}, out=[];
 const qualifies=f=>reqs(f).every(x=>x.ok);
 
 /* ---------- reading & insights. learn() raises a topic; sometimes an insight falls out. ---------- */
-function maybeInsight(topic, src){ const open=S.insights.filter(i=>i.status==='new').length; if (open>=3) return null;
-  const p=0.16+0.025*S.know[topic]+(src==='paper'?0.12:0); if (rnd()>p) return null;
-  const k=pick(TICK); const truth=Math.abs(S.drift[k.t])<0.002?(rnd()<0.5?1:-1):Math.sign(S.drift[k.t]);
-  const acc=clamp(0.55+0.035*S.know[topic]+0.03*S.stats.analysis,0.5,0.92); const dir=rnd()<acc?truth:-truth;
-  const tpl=pick(INSIGHT_TEXT[topic][dir>0?'pos':'neg']);
-  const ins={id:S.day+'-'+k.t+'-'+Math.floor(rnd()*1e6), tk:k.t, dir, topic, text:tpl.replace(/\{n\}/g,k.n).replace(/\{t\}/g,k.t), day:S.day, status:'new'};
-  S.insights.push(ins); if (S.insights.length>40){ const i=S.insights.findIndex(x=>x.status!=='new'&&x.status!=='pitched'); if (i>=0) S.insights.splice(i,1); }
-  gainXp(10); return ins; }
 function learn(topic, n, src){ const lvl=S.know[topic]||0; const gain=Math.min(n, 10-lvl); S.know[topic]=lvl+gain; S.reads++; gainXp(8*n);
   let t=gain>0?`+${gain} ${topicName(topic)} (${S.know[topic]}/10).`:`${topicName(topic)} is at 10. You could teach this.`;
-  if (gain>0&&rnd()<0.08){ S.stats.analysis++; t+=' Something clicks. +1 Analysis.'; }
-  const ins=maybeInsight(topic, src); if (ins) t+=`\n\nINSIGHT: ${ins.text}\n(Pitch it to ${first(BB.staff.mentor.name)} or ${first(BB.staff.boss.name)} at the office.)`;
+  if (gain>0&&progress('analysis',1)) t+=' Something clicks. +1 Analysis.';
   return t; }
 function readMenu(n, src, choices, cap, capKey){ const used=S.flags.daily[capKey]||0;
-  return choices.map(c=>({l:c.l, s:c.s||`+1 ${topicName(c.k)}`, dis:used>=cap, f:()=>{ if (!useEnergy(1)) return; S.flags.daily[capKey]=used+1; say(n, (c.pre||'')+learn(c.k,1,src)); }})); }
+  return choices.map(c=>({l:c.l, s:c.s||`+1 ${topicName(c.k)}`, dis:used>=cap, f:()=>{ if (!useEnergy(1)) return; S.flags.daily[capKey]=used+1; say(n, (c.pre||'')+learn(c.k,1,src)+(c.post?'\n\n'+(c.post()||''):'')); }})); }
+/* ---------- the day's facts. Seeded per (save, day, source): a reload shows the same thing. The source's agenda decides how often it is signal,
+   trap or noise; the hidden truth decides which way a signal points. kind is never shown until a fact is stamped (checked, or its name resolved). */
+const truthSign=tk=>Math.sign(S.drift[tk])||1;
+function todayFact(srcId){ const src=SOURCES[srcId]; if (!src) return null; const r=dayRng('fact:'+srcId); const name=src.only||dpick(r,TICK).t, k=tk(name);
+  const topic=dpick(r,src.topics); let pool=FACT_TEMPLATES.filter(f=>f.topic===topic&&f.lvl>=src.lvl[0]&&f.lvl<=src.lvl[1]); if (!pool.length) pool=FACT_TEMPLATES.filter(f=>f.topic===topic); const tpl=dpick(r,pool);
+  const p=PROFILES[src.profile]; const roll=r(); const kind=roll<p.sig?'signal':roll<p.sig+p.trap?'trap':'noise'; const truth=truthSign(name); const dir=kind==='signal'?truth:kind==='trap'?-truth:(r()<0.5?1:-1);
+  const fill=s=>s.replace(/\{n\}/g,k.n).replace(/\{t\}/g,k.t);
+  return {id:S.day+':'+srcId, day:S.day, src:srcId, tk:name, topic, lvl:tpl.lvl, kind, dir, text:fill(dir>0?tpl.pos:tpl.neg), dim:fill(tpl.dim), ok:fill(tpl.ok), bad:fill(tpl.bad)}; }
+const canRead=f=>(S.know[f.topic]||0)>=f.lvl, isExpert=f=>(S.know[f.topic]||0)>=f.lvl+3;
+const expertLine=f=>f.kind==='signal'?f.ok:f.kind==='trap'?f.bad:NOISE_LINE;
+const factById=id=>S.facts.find(f=>f.id===id);
+const srcName=id=>(SOURCES[id]||{name:id}).name;
+const cited=id=>S.insights.some(t=>(t.cites||[]).includes(id));
+function ledgerAdd(src, kind){ const l=S.src[src]=S.src[src]||{right:0,wrong:0,noise:0}; if (kind==='signal') l.right++; else if (kind==='trap') l.wrong++; else l.noise++; }
+function stampFact(f){ if (f.stamp) return; f.stamp=f.kind; if (!f.counted){ f.counted=true; ledgerAdd(f.src,f.kind); } }
+function collect(srcId){ if (daily('fact:'+srcId)) return null; const f=todayFact(srcId); if (!f) return null; setDaily('fact:'+srcId); Object.assign(f,{checked:false,stamp:null,counted:false}); S.facts.push(f);
+  if (S.facts.length>40){ const i=S.facts.findIndex(x=>!cited(x.id)); S.facts.splice(i>=0?i:0,1); } gainXp(6);
+  if (canRead(f)) return srcName(srcId)+': '+f.text+(isExpert(f)?'\n'+expertLine(f):'')+'\n(Filed in your notebook.)';
+  return srcName(srcId)+': '+f.dim+'\n('+topicName(f.topic)+' '+f.lvl+' to read it. Filed anyway.)'; }
+const factsOn=(name,read)=>S.facts.filter(f=>f.tk===name&&f.day>=S.day-6&&(!read||canRead(f)));
+const pitchable=()=>[...new Set(S.facts.filter(f=>f.day>=S.day-6&&canRead(f)).map(f=>f.tk))];
+/* checking hearsay against a primary source: the filings (Accounting) at the laptop, the tape (Markets) at the terminal. 1 energy, two a day. */
+function checkFact(id, free, where){ const f=factById(id); if (!f) return null; where=where||'The filing';
+  if (!free){ if ((S.flags.daily.check||0)>=2) return 'Two checks a day. Your eyes are going.'; if (!useEnergy(1)) return null; S.flags.daily.check=(S.flags.daily.check||0)+1; }
+  f.checked=true; stampFact(f);
+  return f.kind==='signal'?where+' agrees. '+f.ok:f.kind==='trap'?where+' does not support it. '+f.bad:where+' has nothing on this. '+NOISE_LINE; }
+function checkMenu(primaryTopic){ const where=primaryTopic==='markets'?'The tape':'The filing'; if ((S.know[primaryTopic]||0)<2) return say(null,'You would not know what to look for in '+where.toLowerCase()+' yet. ('+topicName(primaryTopic)+' 2.)');
+  const cands=S.facts.filter(f=>canRead(f)&&!f.checked&&!f.stamp&&SOURCES[f.src]&&SOURCES[f.src].profile!=='primary').slice(-4).reverse();
+  if (!cands.length) return say(null,'Nothing in your notebook that needs checking. Hearsay first, then '+where.toLowerCase()+'.');
+  say(null,'Check a note against '+where.toLowerCase()+' (1 energy, '+(2-(S.flags.daily.check||0))+' left today). Which?', cands.map(f=>({l:f.tk+' · '+srcName(f.src), s:f.text.slice(0,90)+(f.text.length>90?'…':''), f:()=>{ const t=checkFact(f.id,false,where); if (t) say(null,t); }})).concat([{l:'Not now', f:closeDlg}])); }
+/* ---------- theses. You pick the name, the direction and the facts that back it. Right or wrong is the truth captured when you pitch; the cited
+   facts decide how much it was worth, and the debrief stamps them. ---------- */
+function thesisMenu(n, who, name, dir, cites){ cites=cites||[];
+  if (!name){ const names=pitchable(); if (!names.length) return say(n,'Nothing in your notebook you can read. The pack, the tape, Susan, the café. Come back with something.');
+    return say(n, who==='boss'?'Thirty seconds. Which name?':'Go on, then. Which name?', names.slice(0,4).map(t=>({l:t+' · '+factsOn(t,true).length+' fact(s)', s:tk(t).n, f:()=>thesisMenu(n,who,t)})).concat([{l:'Never mind', f:closeDlg}])); }
+  if (!dir) return say(n,'Which way on '+tk(name).n+'?', [{l:'LONG', cls:'green', s:'Better than the price says', f:()=>thesisMenu(n,who,name,1)}, {l:'SHORT', cls:'red', s:'Worse than the price says', f:()=>thesisMenu(n,who,name,-1)}, {l:'Back', f:()=>thesisMenu(n,who)}]);
+  const facts=factsOn(name,true).slice(-3).reverse();
+  const opts=facts.map(f=>{ const on=cites.includes(f.id); return {l:(on?'✓ ':'')+srcName(f.src)+(f.checked?' · checked':''), s:f.text.slice(0,80)+(f.text.length>80?'…':''), f:()=>{ if (!on&&cites.length>=2){ toast('Two facts. He has a meeting.'); return thesisMenu(n,who,name,dir,cites); } thesisMenu(n,who,name,dir,on?cites.filter(x=>x!==f.id):cites.concat([f.id])); }}; });
+  opts.push({l:'Pitch it (1 energy)', cls:'gold', s:cites.length?(dir>0?'Long ':'Short ')+name+', '+cites.length+' fact(s) cited':'No reasons: a hunch', f:()=>pitchThesis(name,dir,cites,who,n)});
+  opts.push({l:'Back', f:()=>thesisMenu(n,who,name)});
+  say(n,'Why '+(dir>0?'long':'short')+' '+name+'? Cite up to two.', opts); }
+function pitchThesis(name, dir, cites, who, n){ if (!useEnergy(1)) return null; const k=tk(name); const cf=(cites||[]).map(factById).filter(Boolean);
+  const i={id:S.day+'-'+name+'-'+S.insights.length, tk:name, dir, cites:cf.map(f=>f.id), topic:cf.length?cf[0].topic:'markets', text:cf.length?cf[0].text:'A hunch on '+k.n+'.', hunch:!cf.length, day:S.day, status:'pitched', to:who, pday:S.day, ppx:S.px[name], truth:truthSign(name)};
+  S.insights.push(i); if (S.insights.length>40){ const j=S.insights.findIndex(x=>x.status!=='pitched'); if (j>=0) S.insights.splice(j,1); } gainXp(10); aff(who,2);
+  const stakes=who==='boss'?'Trust +9 if right, −4 if wrong':'Trust +6 if right, −2 if wrong'; const why=cf.length?cf.map(f=>srcName(f.src)+': '+f.text).join('\n'):'No evidence. A hunch.'; const head='"'+(dir>0?'Long':'Short')+' '+k.n+'."\n'+why;
+  say(n, who==='boss'?head+'\n\nHe doesn\'t write it down. He doesn\'t need to.\n\n"Noted. If it\'s right I\'ll remember it. If it\'s wrong I\'ll remember that too." ('+stakes+'; +2 per fact that holds, −2 per fact that doesn\'t. Three days.)':head+'\n\n'+first(BB.staff.mentor.name)+' looks at you a moment longer than is comfortable.\n\n"Hm. Write that up in two lines. I\'ll watch the tape." ('+stakes+'; +2 per fact that holds, −2 per fact that doesn\'t. Three days.)'); return i; }
+
 
 /* ---------- quests (derived from state, so they never desync) ---------- */
 const QUESTS=[
   {id:'commute', t:'Get to work', d:'Bus to Millbrook, train to Brayford Junction, express to Lombard City. BlackBoulder is north of the river, past the bridge.', done:s=>!!s.flags.atOffice},
   {id:'duty', t:'Earn your keep', d:'Post round, printer, coffee round. Each one builds trust with the floor.', done:s=>!!s.flags.duty},
   {id:'read', t:'Read something', d:'The shelf, the morning pack, the paper on the train, the library in Millbrook. Knowledge is the book in MENU.', done:s=>s.reads>0},
-  {id:'pitch', t:'Pitch an insight', d:'Reading throws up insights. Take one to Susan or Lawrence. Three days later the tape says whether you were right.', done:s=>s.insights.some(i=>i.status!=='new')},
+  {id:'pitch', t:'Pitch a thesis', d:'Collect facts (the pack, the tape, the train, Susan, the café). Build a thesis in a chat with Susan or Lawrence: a name, a direction, the facts that back it. Three days later the tape, and the debrief, tell you which facts were worth having.', done:s=>s.insights.some(i=>i.status!=='new')},
   {id:'analyst', t:'Make Analyst', d:`Trust ${PROMO_NEED.trust}, knowledge ${PROMO_NEED.know}, ${PROMO_NEED.calls} correct calls. Then Lawrence gives you a book.`, done:s=>s.job.rank>=1},
   {id:'first', t:'First research', d:'Sit at your desk (the yellow one) and research a stock.', done:s=>!!s.flags.researched, show:s=>s.job.rank>=1},
   {id:'trade', t:'First trade', d:'Take a position after your research.', done:s=>!!s.flags.traded, show:s=>s.job.rank>=1},
@@ -560,7 +668,7 @@ function spawnNPCs(){ NPCS=[]; if (SC.k!=='office') return; const f=SC.firm; con
   const mk=(kind, def, x, y, patrol)=>{ const h=hash(def.name); const shirt=kind==='boss'?'#1b1f3a':(SHIRT[def.kind||kind]); return {id:kind, kind:def.kind||kind, name:def.name, role:def.title, x, y, fx:x, fy:y, dir:'down', t:rnd()*100, patrol, frames:charFrames(HAIRS[h%HAIRS.length], shirt, (h>>3)%2?'#1c1a22':'#2b2f3c', SKINS[(h>>5)%SKINS.length])}; };
   NPCS.push(mk('boss', st.boss, 9, 3), mk('mentor', st.mentor, 5, 9, [[5,9],[8,9]]), mk('rival', st.rival, 11, 11, [[11,11],[14,11]]), mk('extra', st.extra, 18, 12)); }
 function spawnTraffic(){ const cars=[]; const W=SC.rows[0].length; (SC.lanes||[]).forEach(l=>{ for (let i=0;i<(l.n||2);i++) cars.push({x:rnd()*W, y:l.y, dir:l.dir, sp:(l.bus?1.6:2.4)+rnd()*1.4, kind:(l.bus||rnd()<0.4)?'bus':'cab'}); }); if (SC.boat) cars.push({x:rnd()*W, y:33, dir:1, sp:0.7, kind:'boat'}); return cars; }
-function go(k, firmId, x, y, dir){ S.scene={k, firm:firmId||null}; SC=buildScene(k, firmId); spawnNPCs(); SC.cars=spawnTraffic(); P.x=x; P.y=y; P.fx=x; P.fy=y; P.dir=dir||'down'; P.moving=false; P.path=[]; P.after=null; S.player={x,y,dir:P.dir}; resize(); hud(); save(); }
+function go(k, firmId, x, y, dir){ S.scene={k, firm:firmId||null}; SC=buildScene(k, firmId); spawnNPCs(); SC.cars=spawnTraffic(); P.x=x; P.y=y; P.fx=x; P.fy=y; P.px=P.py=null; P.dir=dir||'down'; P.moving=false; P.path=[]; P.after=null; S.player={x,y,dir:P.dir}; resize(); hud(); save(); }
 const bldIn=(town,id)=>TOWN[town].buildings.find(b=>b.id===id);
 function goHome(){ const p=homePos(); go('home',null,p.x,p.y,'down'); }
 function leaveHome(){ const h=HOMES[S.home.tier]; const b=bldIn(h.town,h.bld); go(h.town,null,b.dx,b.dy+1,'down'); }
@@ -575,7 +683,8 @@ function say(npc, text, choices){ dlg={npc}; $('dlg').classList.add('open'); $('
 function closeDlg(){ dlg=null; $('dlg').classList.remove('open'); $('choices').innerHTML=''; hud(); save(); }
 let tw; function typewrite(el, text){ clearTimeout(tw); el.textContent=''; let i=0; const step=()=>{ el.textContent=text.slice(0,++i); if (i<text.length) tw=setTimeout(step, 12); }; step(); el.onclick=()=>{ clearTimeout(tw); el.textContent=text; }; }
 const npcByKind=k=>NPCS.find(n=>n.id===k);
-function stepBack(){ closeDlg(); P.y++; P.fy=P.y; P.dir='down'; }
+function stepBack(){ closeDlg(); if (!(tile(P.x,P.y)==='O'||platformAt(P.x,P.y))) return; const ok=(x,y)=>x!=null&&!blocked(x,y)&&!platformAt(x,y)&&tile(x,y)!=='O';
+  const c=[[P.px,P.py],[P.x,P.y+1],[P.x,P.y-1],[P.x-1,P.y],[P.x+1,P.y]].find(([x,y])=>ok(x,y)); if (!c) return; P.dir=c[0]<P.x?'left':c[0]>P.x?'right':c[1]<P.y?'up':'down'; P.x=c[0]; P.y=c[1]; P.moving=true; }
 
 /* ---------- the commute: Ashbury -(bus)- Millbrook -(train)- Brayford Junction -(express)- Lombard City ---------- */
 let travelling=false;
@@ -589,15 +698,16 @@ const legName=(i,dir)=>dir>0?LEGS[i].out:LEGS[i].back;
 function stopDialog(dir, extra){ const i=sceneIdx(SC.k); const dests=[]; for (let j=i+dir; j>=0&&j<LINE.length; j+=dir) dests.push(j);
   const opts=[]; dests.forEach((j,n)=>{ const f=fareBetween(i,j); const home=j===homeIdx(); const via=dests.slice(0,n).map(x=>TOWN_NAMES[LINE[x]]);
     opts.push({l:(j===3?'To work: Lombard City':home?'Home: '+TOWN_NAMES[LINE[j]]:'To '+TOWN_NAMES[LINE[j]])+` (${fareText(f)})`, cls:(j===3||home)?'gold':'', s:via.length?'Change at '+via.join(' and '):'', f:()=>travel(j,false)});
-    if (n===dests.length-1&&LEGS.slice(Math.min(i,j),Math.max(i,j)).some(l=>l.mode==='train')) opts.push({l:'… and read on the train (1 energy)', s:S.paper?'You have today\'s Financial Ledger: +1 Macro, +1 Markets, insights likelier.':'The free paper someone left on the seat. Mostly football, some markets.', f:()=>travel(j,true)});
+    const readTarget=(dir<0&&dests.includes(homeIdx()))?homeIdx():dests[dests.length-1]; if (j===readTarget&&LEGS.slice(Math.min(i,j),Math.max(i,j)).some(l=>l.mode==='train')) opts.push({l:'… and read on the train (1 energy)', s:S.paper?'You have today\'s Financial Ledger: +1 Macro, +1 Markets, insights likelier.':'The free paper someone left on the seat. Mostly football, some markets.', f:()=>travel(j,true)});
   });
   (extra||[]).forEach(o=>opts.push(o)); opts.push({l:'Wait', f:stepBack}); say(null, STOP_TEXT[SC.k][dir>0?'e':'w'], opts); }
 function travel(j, read, then){ const i=sceneIdx(SC.k); const dir=j>i?1:-1; const fare=fareBetween(i,j);
   if (read&&S.energy<1) return say(null,'Too tired to read. You would only stare at the same paragraph.'); if (!payFare(fare)) return; if (read) S.energy--;
-  closeDlg(); travelling=true; const stops=[]; for (let k=i+dir; k!==j; k+=dir) stops.push(k); stops.push(j); let n=0;
-  const step=()=>{ const k=stops[n++]; const key=LINE[k]; const pos=ARRIVE[key][dir>0?'e':'w']; go(key,null,pos[0],pos[1],'down');
-    if (k!==j){ toast(`${TOWN_NAMES[key]} · change for ${legName(dir>0?k:k-1,dir)}`); setTimeout(step, 1100); }
-    else { travelling=false; toast(TOWN_NAMES[key]); if (then) return then(); if (read){ const paper=S.paper; S.paper=false; const t=paper?learn('macro',1,'paper')+' '+learn('markets',1,'paper'):learn(rnd()<0.5?'markets':'macro',1,'train'); say(null,(paper?'You read the Financial Ledger cover to cover between stations. ':'You read the free paper over someone\'s shoulder. ')+t); } } };
+  closeDlg(); travelling=true; const stops=[]; for (let k=i+dir; k!==j; k+=dir) stops.push(k); stops.push(j); let n=0; const fade=$('fade');
+  const step=()=>{ const k=stops[n++]; const key=LINE[k]; const pos=ARRIVE[key][dir>0?'e':'w']; fade.textContent=legName(dir>0?k-1:k,dir)+'\n'+TOWN_NAMES[key]; fade.classList.add('on');
+    setTimeout(()=>{ go(key,null,pos[0],pos[1],pos[2]||'down'); fade.classList.remove('on');
+    if (k!==j){ toast(`${TOWN_NAMES[key]} · change for ${legName(dir>0?k:k-1,dir)}`); setTimeout(step, 1300); }
+    else { travelling=false; toast(TOWN_NAMES[key]); if (then) return then(); if (read){ const paper=S.paper; S.paper=false; if (paper) say(null,'You read the Financial Ledger cover to cover between stations. '+learn('macro',1,'paper')+' '+learn('markets',1,'paper')+'\n\n'+(collect('ledger')||'')); else say(null,'The free paper someone left on the seat. Football, a crossword, and two pages that matter. Which?', [{l:'The markets page', s:'+1 Markets', f:()=>say(null, learn('markets',1,'train')+'\n\n'+(collect('paper')||''))}, {l:'The economics column', s:'+1 Macro', f:()=>say(null, learn('macro',1,'train')+'\n\n'+(collect('paper')||''))}]); } } }, 420); };
   step(); }
 function tubeMenu(){ const here=SC.tube.find(t=>Math.abs(t.x-P.x)<=1&&Math.abs(t.y-P.y)<=1)||SC.tube[0];
   say(null,`${here.name} Underground. Warm air from below, a busker, the map with the coloured lines. Fare ${fareText(TUBE_FARE)}.`, SC.tube.filter(t=>t!==here).map(t=>({l:`${t.name}`, f:()=>{ if (!payFare(TUBE_FARE)) return; closeDlg(); go('city',null,t.x,t.y+1,'down'); toast(t.name); }})).concat([{l:'Stay above ground', f:closeDlg}])); }
@@ -609,35 +719,32 @@ const msHere=()=>S.ms&&S.job&&S.ms.firm===S.job.firm?S.ms:null;
 const msTk=()=>tk(S.ms.tk);
 function clueText(src){ const m=S.ms, k=msTk(), beat=m.truth==='beat';
   if (src==='mentor') return beat ? `${k.n}? Their CFO left last month and it spooked people. But read the footnotes of the last quarterly: they have bought back their own shares every single week since. Management doesn't buy when it knows it's about to miss.` : `${k.n}? Their CFO left last month. "Personal reasons", they say. Read the latest guidance again: the language went from "strong demand" to "challenging environment". That doesn't happen by accident.`;
-  if (src==='quant'){ const clear=S.stats.analysis>=3||S.flags.quantModel; const up=beat!==(!clear&&rnd()<0.35); return (up?`Alternative data on ${k.t}: activity on their biggest line is up 8% this quarter.`:`Alternative data on ${k.t}: activity on their biggest line is down 6% this quarter.`)+(clear?' The data is clean; I have adjusted for seasonality.':' But careful: it is noisy and I haven\'t adjusted for seasonality. I wouldn\'t bet the house on it.'); }
-  if (src==='compliance'){ const up=beat!==(S.stats.analysis<3&&rnd()<0.25); return `I read the insider filings so you don't have to. In the window before the blackout, two ${k.t} directors ${up?'bought':'sold'} stock. ${up?'People don\'t buy before bad news.':'People rarely sell before good news.'} Don't quote me.`; }
+  if (src==='quant'){ const clear=S.stats.analysis>=3||S.flags.quantModel; const up=beat!==(!clear&&dayRoll('clue:quant')<0.35); return (up?`Alternative data on ${k.t}: activity on their biggest line is up 8% this quarter.`:`Alternative data on ${k.t}: activity on their biggest line is down 6% this quarter.`)+(clear?' The data is clean; I have adjusted for seasonality.':' But careful: it is noisy and I haven\'t adjusted for seasonality. I wouldn\'t bet the house on it.'); }
+  if (src==='compliance'){ const up=beat!==(S.stats.analysis<3&&dayRoll('clue:compliance')<0.25); return `I read the insider filings so you don't have to. In the window before the blackout, two ${k.t} directors ${up?'bought':'sold'} stock. ${up?'People don\'t buy before bad news.':'People rarely sell before good news.'} Don't quote me.`; }
   if (src==='intern') return `Psst. ${first(SC.firm.staff.rival.name)} was in the kitchen on the phone. Said they're going ${m.rival} ${k.t} "with everything I have". Didn't see me. I think.`;
   if (src==='terminal') return `${k.t}: −12% in a week.\n`+(beat?'Turnover has been low; the selling comes from a few large holders, not broad panic. Short interest is 22%: a lot of people have to buy back if this goes the other way.':'The drop came on heavy volume, and two executives sold shares in the period. Short interest is 22%, and those shorts usually do their homework.');
-  if (src==='cafe'){ const reliable=rnd()<(S.stats.charm>=4?0.8:0.65); const up=beat===reliable; return `A sell-side analyst at the next table is on the phone about ${k.n}. "${up?'Channel checks look strong. I think they beat.':'Channel checks are soft. I think they miss.'}" You pretend to read the menu.`; }
+  if (src==='cafe'){ const reliable=dayRoll('clue:cafe')<(S.stats.charm>=4?0.8:0.65); const up=beat===reliable; return `A sell-side analyst at the next table is on the phone about ${k.n}. "${up?'Channel checks look strong. I think they beat.':'Channel checks are soft. I think they miss.'}" You pretend to read the menu.`; }
 }
 function addClue(src){ const m=S.ms; if (!m||m.clues.includes(src)) return null; m.clues.push(src); gainXp(12); return clueText(src); }
 
 /* ---------- pitching insights ---------- */
-function pitchMenu(n, who){ const news=S.insights.filter(i=>i.status==='new');
-  say(n, who==='boss'?'Thirty seconds.':'Go on, then.', news.map(i=>({l:`${i.tk} · ${i.dir>0?'positive':'negative'} (${topicName(i.topic)})`, s:i.text, f:()=>pitch(n,i,who)})).concat([{l:'Never mind', f:closeDlg}])); }
-function pitch(n, i, who){ if (!useEnergy(1)) return; i.status='pitched'; i.to=who; i.pday=S.day; i.ppx=S.px[i.tk]; gainXp(10); aff(who,2);
-  say(n, who==='boss'?`"${i.text}"\n\nHe doesn't write it down. He doesn't need to.\n\n"Noted. If it's right I'll remember it. If it's wrong I'll remember that too." (Trust +9 if right, −4 if wrong. Three days.)`:`"${i.text}"\n\n${first(SC.firm.staff.mentor.name)} looks at you a moment longer than is comfortable.\n\n"Hm. Write that up in two lines. I'll watch the tape." (Trust +6 if right, −2 if wrong. Three days.)`); }
 function promote(n){ const j=S.job, f=SC.firm; j.rank=1; j.frep=10; j.promoDay=S.day; j.pnlQ=0; j.rivalPnl=0; S.rep+=5; gainXp(100); S.flags.promoted=true; save();
   say(n, `${first(f.staff.mentor.name)} has been in here three times about you. ${correctCalls()} calls right, and you read more than half my analysts.\n\nAladin gave you a login this morning. Analyst. ${moneyM(book())} to start with. Lose ${Math.round(f.fireLoss*100)}% of it in a quarter and you are back in the post room.\n\nYour desk is the yellow one. ${first(f.staff.rival.name)} sits next to you and is good. Be better.`, [{l:'Thank you.', f:closeDlg}]); }
 
 /* ---------- NPC dialogue. Order of checks is priority: missions first, then one-offs, then idle lines. ---------- */
+const ingridAsk=n=>daily('fact:ingrid')?[]:[{l:'Ask what she is reading (free)', s:'She reads the filings so you don\'t have to', f:()=>say(n, collect('ingrid')||'Nothing today.')}];
 const DIALOG={
   boss(n){ const f=SC.firm, j=S.job, m=msHere(), riv=first(f.staff.rival.name), men=first(f.staff.mentor.name);
     if (!j.met){ j.met=true; gainXp(20); return say(n, `You're the junior. Dave. Post at eight, coffee at nine, the morning pack printed and on every desk before the open. Don't touch the terminal, don't talk to ${riv} while he's on the phone, and don't tell me your ideas.\n\nTell ${men}. If she tells me, then we'll talk.`, [{l:'Yes, Mr Flink.', f:closeDlg}, {l:'"I didn\'t take this job to carry post."', s:'Nerve', f:()=>{ if (S.stats.nerve>=3){ trust(3); say(n,'No. You took it because nobody else would have you. But I like that you said it. Trust +3.'); } else { trust(-3); say(n,'Then carry it badly and I\'ll find someone who carries it well. Trust −3.'); } }}]); }
     if (j.rank===0){ if (promoReady()) return promote(n);
-      const news=S.insights.filter(i=>i.status==='new'); const opts=[]; if (news.length) opts.push({l:'Pitch an insight (1 energy)', cls:'gold', s:'Riskier than Susan: bigger trust either way', f:()=>pitchMenu(n,'boss')}); opts.push({l:'Nothing. Sorry.', f:closeDlg});
-      return say(n, pick([`${men} says you read. Reading is cheap. Being right is expensive.`, `Trust ${j.trust}/${PROMO_NEED.trust}. Knowledge ${knowTotal()}/${PROMO_NEED.know}. Correct calls ${correctCalls()}/${PROMO_NEED.calls}. That is where you are.`, ...f.lines.boss]), opts); }
+      const names=pitchable(); const opts=[]; if (names.length) opts.push({l:'Pitch a thesis (1 energy)', cls:'gold', s:names.length+' name(s) you can argue · riskier than Susan', f:()=>thesisMenu(n,'boss')}); opts.push({l:'Nothing. Sorry.', f:closeDlg});
+      return say(n, `Trust ${j.trust}/${PROMO_NEED.trust}. Knowledge ${knowTotal()}/${PROMO_NEED.know}. Correct calls ${correctCalls()}/${PROMO_NEED.calls}. That is where you are.\n\n`+dpick(dayRng('bossline'),[`${men} says you read. Reading is cheap. Being right is expensive.`, ...f.lines.boss]), opts); }
     if (j.days-j.promoDay>=2 && !S.ms && !S.flags['ms_'+f.id]){ startMission(f); const k=msTk(); gainXp(15);
       return say(n, `${k.n}. ${k.t}. They report in three days and the stock is down 12% in a week. Everyone has an opinion, nobody knows anything.\n\nFind out what's going on. ${men} knows the company, ${first(f.staff.extra.name)} sees things the rest of us don't, the terminal has the tape, and the café hears everything. Come back with a view, or a good reason not to have one.`, [{l:'On it.', f:closeDlg}]); }
     if (m && m.stage===2){ m.stage=3; const right=m.bet&&m.bet!=='none'&&((m.bet==='long')===(m.truth==='beat')); let t, d=0;
       if (m.bet==='none'&&m.honest){ d=4; t='You came in and said "I don\'t know" with three clues in your hand. Most people guess and hope. I prefer "don\'t know" to an expensive guess. Next time, though, I want a view.'; }
       else if (!m.bet||m.bet==='none'){ d=-3; t='I asked you to find something out, and you found out how to stay away. That is not the same thing.'; }
-      else if (right&&m.big){ d=14; t=`You came to me for firm capital and you were right. ${m.truth==='beat'?'Beat':'Miss'}, exactly as you said. That is how you build a name here.`; aff('boss',15); gainXp(120); if (rnd()<0.5){ S.stats.nerve++; t+='\n\n+1 Nerve.'; } }
+      else if (right&&m.big){ d=14; t=`You came to me for firm capital and you were right. ${m.truth==='beat'?'Beat':'Miss'}, exactly as you said. That is how you build a name here.`; aff('boss',15); gainXp(120); if (progress('nerve',2)) t+='\n\n+1 Nerve.'; }
       else if (right){ d=9; t=`Right direction, sensible size. ${m.truth==='beat'?'They beat':'They missed'} and you were on the right side. Good work.`; aff('boss',8); gainXp(80); }
       else if (m.big){ d=-10; t='You asked for firm capital and you were wrong. It happens. It must not happen twice.'; aff('boss',-10); }
       else { d=-5; t=`Wrong direction. ${m.clues.length<2?'And you had barely spoken to anyone. ':''}Learn from it.`; }
@@ -647,21 +754,21 @@ const DIALOG={
       return say(n, `${m.tk} reports in ${m.earnDay-S.day} day(s). What have you got?`, [ ...(m.clues.length>=2&&!m.bet&&S.stats.nerve>=3 ? [{l:'Pitch: let me trade it with firm capital', cls:'gold', s:'Nerve · double the stake, double the consequence', f:()=>{ m.big=true; say(n,'You\'ve got some nerve. Fine. Take your view at your desk and I\'ll double it. Be wrong and we talk.'); }}] : []),
         {l:'"I don\'t know yet."', s:'Honest. Counts as an answer if you have clues.', f:()=>{ if (m.clues.length>=3&&!m.bet){ m.bet='none'; m.honest=true; say(n,'Hm. Three sources and no view. That is either wise or cowardly. We\'ll find out which.'); } else say(n,'Then find out.'); }}, {l:'Still working on it', f:closeDlg}]); }
     if (S.flags.reportPending===f.id){ S.flags.reportPending=null; j.frep+=6; S.rep+=4; aff('boss',10); gainXp(30); return say(n,`${riv} and I have had a conversation. You did the right thing, and I don't forget that.`); }
-    const news=S.insights.filter(i=>i.status==='new'); const opts=[]; if (news.length) opts.push({l:'Pitch an insight (1 energy)', cls:'gold', s:'Trust and firm reputation if right', f:()=>pitchMenu(n,'boss')});
+    const names=pitchable(); const opts=[]; if (names.length) opts.push({l:'Pitch a thesis (1 energy)', cls:'gold', s:names.length+' name(s) you can argue · trust and firm reputation if right', f:()=>thesisMenu(n,'boss')});
     if (j.pnlQ<-book()*0.05) return say(n, `You're down ${pct(j.pnlQ/book()*100)} this quarter. I've seen people go back to the post room for less. Fix it.`, opts.concat([{l:'…', f:closeDlg}]));
-    if (j.pnlQ>book()*0.03&&!j.boost) return say(n, `${pct(j.pnlQ/book()*100)}. Not bad. Keep your head; it's when things go well that people get stupid.`, opts.concat([{l:'Ask for a bigger book', s:'Charm · chance', f:()=>{ if (rnd()<0.3+S.stats.charm*0.1){ j.boost=true; j.frep+=4; say(n,'Fine. 25% more until the quarterly review. Don\'t disappoint me.'); } else say(n,'No. Show me a whole quarter first.'); }}, {l:'Thanks.', f:closeDlg}]));
+    if (j.pnlQ>book()*0.03&&!j.boost) return say(n, `${pct(j.pnlQ/book()*100)}. Not bad. Keep your head; it's when things go well that people get stupid.`, opts.concat([{l:'Ask for a bigger book', s:'Charm 4, or firm reputation 20', f:()=>{ if (S.stats.charm>=4||j.frep>=20){ j.boost=true; j.frep+=4; say(n,'Fine. 25% more until the quarterly review. Don\'t disappoint me.'); } else say(n,'No. Ask me when the floor knows your name, or when you can ask without looking at your shoes.'); }}, {l:'Thanks.', f:closeDlg}]));
     return say(n, pick(f.lines.boss.concat(['What do you want? I have a call in three minutes.'])), opts.length?opts.concat([{l:'Nothing.', f:closeDlg}]):undefined);
   },
-  mentor(n){ const f=SC.firm, m=msHere(), j=S.job; const news=S.insights.filter(i=>i.status==='new');
+  mentor(n){ const f=SC.firm, m=msHere(), j=S.job; const names=pitchable();
     if (!S.flags['lesson_'+f.id]){ S.flags['lesson_'+f.id]=true; gainXp(25); aff('mentor',10); trust(3); let t=`You're the new junior. Good. Let me give you the only advice that matters, in one go: a chart tells you what happened. Research tells you what is happening now. The signal is never clean; it is a probability, not a promise.\n\nRead everything. When something in what you read looks like a bet, bring it to me.`; if (!S.flags.firstLesson){ S.flags.firstLesson=true; S.stats.analysis++; t+='\n\n+1 Analysis. Trust +3.'; } return say(n,t); }
     if (m&&m.stage===1&&!m.clues.includes('mentor')) return say(n, addClue('mentor'));
     const opts=[];
-    if (news.length) opts.push({l:'Pitch an insight (1 energy)', cls:'gold', s:`${news.length} unpitched`, f:()=>pitchMenu(n,'mentor')});
-    if (S.energy>=1&&!daily('lesson')) opts.push({l:'Half an hour at the whiteboard (1 energy)', s:'+1 knowledge in a topic of her choosing, chance of +Analysis', f:()=>{ if(!useEnergy(1)) return; setDaily('lesson'); aff('mentor',3); trust(1); let t=learn(pick(KNOW).k,1,'lesson'); if (rnd()<0.18){ S.stats.analysis++; t+=' You saw it before she did. +1 Analysis.'; } say(n,t); }});
+    if (names.length) opts.push({l:'Pitch a thesis (1 energy)', cls:'gold', s:names.length+' name(s) you can argue', f:()=>thesisMenu(n,'mentor')});
+    if (S.energy>=1&&!daily('lesson')) opts.push({l:'Half an hour at the whiteboard (1 energy)', s:'+1 in your weakest topic · counts double towards Analysis', f:()=>{ if(!useEnergy(1)) return; setDaily('lesson'); aff('mentor',3); trust(1); const weak=KNOW.slice().sort((a,b)=>(S.know[a.k]||0)-(S.know[b.k]||0))[0]; let t=`She picks the topic you are worst at. ${learn(weak.k,1,'lesson')}`; if (progress('analysis',2)) t+=' You saw it before she did. +1 Analysis.'; const sf=collect('susan'); if (sf) t+='\n\nOn the way out she mentions a name.\n'+sf; say(n,t); }});
     opts.push({l:'Just saying hello', f:()=>say(n, pick(f.lines.mentor))});
     return say(n, j.rank===0?'Dave. What have you got for me?':'What have you got?', opts); },
   rival(n){ const f=SC.firm, j=S.job; const lead=j.pnlQ-j.rivalPnl;
-    if (j.rank===0) return say(n, pick(['Two sugars. And a flat white for Susan, she\'s off the oat milk.','Page four of the pack was upside down. Page four was mine.','The post goes desk by desk, not pile by pile. Aladin knows. I know.','I was a junior once. For a week.','Don\'t stand behind me. I can feel you reading my screen.']));
+    if (j.rank===0){ const mf=collect('marcus'); return say(n, dpick(dayRng('marcusline'),['Two sugars. And a flat white for Susan, she\'s off the oat milk.','Page four of the pack was upside down. Page four was mine.','The post goes desk by desk, not pile by pile. Aladin knows. I know.','I was a junior once. For a week.','Don\'t stand behind me. I can feel you reading my screen.'])+(mf?'\n\nHe adds, not looking up: '+mf:'')); }
     if (S.ms&&S.ms.firm===f.id&&S.ms.stage>=2&&!S.flags['msRival_'+f.id]){ S.flags['msRival_'+f.id]=true; const right=(S.ms.rival==='long')===(S.ms.truth==='beat'); j.rivalPnl+=book()*(right?0.07:-0.07);
       return say(n, right?`${S.ms.tk}. Didn't I say so? Oh, right. I didn't say it to you.`:`Don't. Not one word about ${S.ms.tk}.`, [{l:'…', f:closeDlg}, ...(right?[]:[{l:'"With everything you had, I heard."', s:'Nerve · he hates you a little more', f:()=>{ aff('rival',-15); j.frep+=1; say(n,`Who told you that? ${first(f.staff.extra.name)}? I'll kill her.`); }}])]); }
     if (!S.flags['tip_'+f.id]&&j.days-j.promoDay>=5&&affOf('rival')>-5){ S.flags['tip_'+f.id]=true; const k=pick(TICK.filter(x=>!S.ms||x.t!==S.ms.tk)); const comp=first(f.staff.extra.name)+' in risk';
@@ -671,12 +778,12 @@ const DIALOG={
     if (S.flags.reportPending===f.id&&kind==='compliance'){ S.flags.reportPending=null; S.job.frep+=6; S.rep+=4; aff('extra',20); gainXp(30); return say(n,`I've spoken to ${first(f.staff.rival.name)}. And to ${first(f.staff.boss.name)}. You did the right thing, and I won't forget it.\n\nIf you're ever unsure about a trade, come to me first.`); }
     if (m&&m.stage===1&&!m.clues.includes('extra')) { m.clues.push('extra'); gainXp(12); return say(n, clueText(kind)); }
     if (S.job.rank===0){ if (!S.flags.riskLesson) return say(n,'The junior. Sit. Aladin runs forty thousand risk scenarios a night on every portfolio in this building. Do you know what it can\'t model?', [{l:'"People."', s:'Risk +1', f:()=>{ S.flags.riskLesson=true; aff('extra',10); say(n,'People. '+learn('risk',1,'ingrid')); }}, {l:'"Me?"', f:()=>{ S.flags.riskLesson=true; say(n,'Not yet. You don\'t have a book.'); }}]);
-      return say(n, pick(f.lines.extra)); }
+      return say(n, pick(f.lines.extra), ingridAsk(n).concat([{l:'…', f:closeDlg}])); }
     if (kind==='quant'){ if (S.flags.quantModel) return say(n, pick(f.lines.extra.concat(['The model runs. Your signal at the desk is cleaner now.'])));
       const h=S.flags.quantHelp||0; if (h>=2){ S.flags.quantModel=true; gainXp(40); aff('extra',20); return say(n,'Thank you. Here is the access. Your signals are sharper now; see for yourself at your desk.'); }
       return say(n, h?'One more session and I\'ll give you the model.':'I have a drift model. Not perfect, but better than your gut. Help me label two batches of data and you get access.', [{l:'Label data (1 energy)', s:'+XP', f:()=>{ if(!useEnergy(1)) return; S.flags.quantHelp=h+1; gainXp(15); aff('extra',8); say(n, h?'Done. Come back for the access.':'Tedious, isn\'t it? One more.'); }}, {l:'Not now', f:closeDlg}]); }
     if (kind==='compliance'){ if (S.insider&&S.insider.firm===f.id) return say(n,`There is a pattern in the ${S.insider.tk} trades I don't understand. I'm looking into it.`, [{l:'"I had a strong thesis."', s:'Nerve', f:()=>{ if (S.stats.nerve>=4) say(n,'Hm. Send me your notes.'); else { S.insider.suspect=true; say(n,'You blinked. Send me your notes today.'); } }}, {l:'Say nothing', f:closeDlg}]);
-      return say(n, pick(f.lines.extra.concat(['The rule is simple: if you wouldn\'t tell your mother, don\'t trade on it.','I sleep well at night. My job is making sure you do too.']))); }
+      return say(n, pick(f.lines.extra.concat(['The rule is simple: if you wouldn\'t tell your mother, don\'t trade on it.','I sleep well at night. My job is making sure you do too.'])), ingridAsk(n).concat([{l:'…', f:closeDlg}])); }
     if (!S.flags['intern_'+f.id]) return say(n,'Hi! Do you know how to do a pivot in pandas? Nobody answers me.', [{l:'Show them (1 energy)', s:'+XP, +relationship', f:()=>{ if(!useEnergy(1)) return; S.flags['intern_'+f.id]=true; aff('extra',20); gainXp(15); say(n,'Wow, thanks! I owe you one.'); }}, {l:'"Google it."', f:()=>{ S.flags['intern_'+f.id]=true; aff('extra',-10); say(n,'…Okay.'); }}]);
     return say(n, pick(f.lines.extra.concat(['Do you think they\'ll keep me after the summer?','The coffee machine is broken again. Or it\'s me.']))); }
 };
@@ -686,19 +793,19 @@ function foodOpt(l, cost, en, key, txt){ return {l:`${l} (${money(cost)}, +${en}
 function interactTile(c){
   const f=SC.firm, j=S.job;
   if (SC.k==='office'){
-    if (c==='d'){ if (j.rank===0) return say(null, `The yellow desk. Not yours. ${first(f.staff.rival.name)}'s spare chair and a pile of sell-side notes he never reads.`, [{l:'Read the research notes (1 energy)', s:'+1 Sectors, chance of an insight', dis:daily('notes'), f:()=>{ if(!useEnergy(1)) return; setDaily('notes'); say(null,'Twelve pages on semiconductors, three on retail, one on a bank that is "cheap for a reason". '+learn('sectors',1,'notes')); }}, {l:'Stand up', f:closeDlg}]); return deskMenu(); }
+    if (c==='d'){ if (j.rank===0) return say(null, `The yellow desk. Not yours. ${first(f.staff.rival.name)}'s spare chair and a pile of sell-side notes he never reads.`, [{l:'Read the research notes (1 energy)', s:'+1 Sectors, and whatever the sell-side wants you to think', dis:daily('notes'), f:()=>{ if(!useEnergy(1)) return; setDaily('notes'); say(null,'Twelve pages on semiconductors, three on retail, one on a bank that is "cheap for a reason". '+learn('sectors',1,'notes')+'\n\n'+(collect('notes')||'')); }}, {l:'Stand up', f:closeDlg}]); return deskMenu(); }
     if (c==='J'){ if (j.rank>=1) return say(null,'Your old stool in the corner. Somebody has put a plant on it.'); return say(null,'Your corner: a stool, a tray, a sticker that says DAVE in someone else\'s handwriting. The knowledge book is in the MENU.', [{l:'Open the knowledge book', f:()=>{ closeDlg(); openSheet(); }}, {l:'Sit for a moment', f:closeDlg}]); }
     if (c==='m'){ if (j.rank>=1) return say(null,'The post room. Jonah does the rounds now and resents you slightly for it.'); if (daily('post')) return say(null,'The post is done. The trolley squeaks at you.');
-      return say(null,'The post trolley. Forty envelopes, two parcels, one that ticks (a clock, probably).', [{l:'Do the post round (1 energy)', cls:'gold', s:'Trust +2, and you hear things', f:()=>{ if(!useEnergy(1)) return; setDaily('post'); S.flags.duty=true; trust(2); gainXp(10); let t=`Desk by desk. ${first(f.staff.rival.name)} doesn't look up. ${first(f.staff.mentor.name)} says thank you. Trust +2.`; if (rnd()<0.45){ const ins=maybeInsight('markets','post'); t+=ins?`\n\nAt the equities desk someone is shouting into a phone. You hear enough.\nINSIGHT: ${ins.text}`:'\n\nThe risk desk is arguing about a stock. You catch the name but not the point.'; } say(null,t); }}, {l:'Not now', f:closeDlg}]); }
+      return say(null,'The post trolley. Forty envelopes, two parcels, one that ticks (a clock, probably).', [{l:'Do the post round (1 energy)', cls:'gold', s:'Trust +2, and you hear things', f:()=>{ if(!useEnergy(1)) return; setDaily('post'); S.flags.duty=true; trust(2); gainXp(10); let t=`Desk by desk. ${first(f.staff.rival.name)} doesn't look up. ${first(f.staff.mentor.name)} says thank you. Trust +2.`; const ff=collect('floor'); if (ff) t+='\n\nAt the equities desk someone is shouting into a phone. You hear enough.\n'+ff; say(null,t); }}, {l:'Not now', f:closeDlg}]); }
     if (c==='Q'){ if (j.rank>=1) return say(null,'The printer. Jammed. It is always jammed. Not your problem any more.'); if (daily('print')) return say(null,'The pack is on every desk. The printer sulks.');
-      return say(null,'The printer, and forty copies of the morning pack to bind. Sixty pages of research nobody reads. You could.', [{l:'Print, bind, and read (1 energy)', cls:'gold', s:'Trust +2, +1 Sectors or Markets', f:()=>{ if(!useEnergy(1)) return; setDaily('print'); S.flags.duty=true; trust(2); say(null,'You bind forty packs and read the forty-first on the floor by the paper tray. Trust +2. '+learn(rnd()<0.5?'sectors':'markets',1,'pack')); }}, {l:'Not now', f:closeDlg}]); }
+      return say(null,'The printer, and forty copies of the morning pack to bind. Sixty pages of research nobody reads. You could.', [{l:'Print, bind, and read (1 energy)', cls:'gold', s:'Trust +2, +1 Sectors or Markets', f:()=>{ if(!useEnergy(1)) return; setDaily('print'); S.flags.duty=true; trust(2); say(null,'You bind forty packs and read the forty-first on the floor by the paper tray. Trust +2. Which pages?', [{l:'The sector notes', s:'+1 Sectors, and the filings in the pack', f:()=>say(null, learn('sectors',1,'pack')+'\n\n'+(collect('pack')||''))}, {l:'The market wrap', s:'+1 Markets, and the filings in the pack', f:()=>say(null, learn('markets',1,'pack')+'\n\n'+(collect('pack')||''))}]); }}, {l:'Not now', f:closeDlg}]); }
     if (c==='C'){ const opts=[]; if (j.rank===0&&!daily('round')) opts.push({l:'Coffee round for the floor (1 energy)', cls:'gold', s:'Trust +2, everybody likes you a little more', f:()=>{ if(!useEnergy(1)) return; setDaily('round'); S.flags.duty=true; trust(2); ['boss','mentor','rival','extra'].forEach(k=>aff(k,2)); gainXp(10); say(null, pick(['Fourteen coffees, two teas, one hot water with lemon for Ingrid. Nobody says thank you except Susan. Trust +2.','You learn who takes sugar and who pretends not to. Marcus takes three. Trust +2.'])); }});
       const had=S.flags.daily.coffee||0; opts.push({l:'A coffee for yourself (+1 energy)', dis:had>=2, s:had>=2?'Any more and you\'ll shake too much to use the mouse':'', f:()=>{ S.flags.daily.coffee=had+1; S.energy=Math.min(maxEnergy(),S.energy+1); hud(); say(null,'The lever creaks, but it works. +1 energy.'); }}); opts.push({l:'Leave it', f:closeDlg});
       return say(null,'The coffee machine. Italian, temperamental, the most important thing on the floor.', opts); }
     if (c==='T'){ if (j.rank===0&&j.trust<25) return say(null,`${first(f.staff.rival.name)}, without looking up: "Off. That seat costs twenty-four thousand a year and you cost ninety-five a day."`);
       const m=msHere(); if (m&&m.stage===1&&!m.clues.includes('terminal')) return say(null, addClue('terminal'));
       const tape=TICK.map(k=>{ const h=S.hist[k.t]; const ch=(h[h.length-1]/h[h.length-2]-1)*100; return `${k.t}  ${S.px[k.t].toFixed(2)}  ${pct(ch)}`; }).join('\n');
-      return say(null, tape+(j.rank>=1?`\n\nQuarter P&L: ${money(j.pnlQ)} · ${first(f.staff.rival.name)}: ${money(j.rivalPnl)}`:''), [{l:'Study the tape (1 energy)', s:'+1 Markets', dis:daily('tape'), f:()=>{ if(!useEnergy(1)) return; setDaily('tape'); say(null,'Volume, breadth, who is leaning on what. '+learn('markets',1,'tape')); }}, {l:'Step away', f:closeDlg}]); }
+      return say(null, tape+(j.rank>=1?`\n\nQuarter P&L: ${money(j.pnlQ)} · ${first(f.staff.rival.name)}: ${money(j.rivalPnl)}`:''), [{l:'Study the tape (1 energy)', s:'+1 Markets', dis:daily('tape'), f:()=>{ if(!useEnergy(1)) return; setDaily('tape'); say(null,'Volume, breadth, who is leaning on what. '+learn('markets',1,'tape')+'\n\n'+(collect('tape')||'')); }}, {l:'Check a note against the tape (1 energy)', s:'Hearsay in your notebook, tested against the tape', f:()=>checkMenu('markets')}, {l:'Step away', f:closeDlg}]); }
     if (c==='E'){ const b=bldIn('city','blackboulder'); const fare=fareBetween(3,homeIdx()); return say(null,'The lift. Out into the city, or call it a day? The market trades overnight.', [{l:homeIdx()===3?'Call it a day: walk home over the bridge & sleep':`Call it a day: commute home & sleep (${fareText(fare)})`, cls:'gold', f:()=>{ if (homeIdx()===3){ return endDay(); } if (!hasPass()&&S.cash<fare) return say(null,'You can\'t afford the fare home. Sleep under the desk? Security would notice. Sell something, or walk to the station and think.'); closeDlg(); go('city',null,b.dx,b.dy+1,'down'); travel(homeIdx(), false, endDay); }}, {l:'Out into the city', f:()=>{ closeDlg(); go('city',null,b.dx,b.dy+1,'down'); }}, {l:'Stay a while', f:closeDlg}]); }
     if (c==='b'){ const used=S.flags.daily.shelf||0; return say(null,`The shelf. ${BOOKS.length} books with cracked spines and other people's notes in the margins. ${used>=2?'You have read enough for today; the words are swimming.':'One chapter is one energy; two chapters a day is all you can take in.'}`, readMenu(null,'shelf',BOOKS.map(b=>({l:b.t, k:b.k})),2,'shelf').concat([{l:'Put it back', f:closeDlg}])); }
     if (c==='P') return say(null,`${first(f.staff.boss.name)}'s desk. Three screens, a photo of a sailing boat and no chairs for visitors.`);
@@ -735,8 +842,8 @@ function homeDoor(b){ const mine=HOMES[S.home.tier].bld===b.id;
   if (mine){ closeDlg(); return goHome(); }
   return say(null, {home1:'Carver Tower. The lift smells of something. A sign: FLATS TO LET, ASK AT THE BOOKIES.', home2:'A terrace with a blue door and a rosemary bush. TO LET, Millbrook Lettings. See the housing page on your laptop.', home3:'Riverside. A concierge in a grey suit opens the door for a woman with a small dog and closes it before you reach it.'}[b.id], [{l:'Leave', f:stepBack}]); }
 function bookies(){ say(null,'Lucky 7. Fixed-odds machines, a telly showing the 3:30 from somewhere wet, and a man who studies the form like it was a balance sheet.', [
-    {l:'$20 on the 3:30', cls:'red', s:'The odds say no. Nerve says maybe.', dis:daily('bet'), f:()=>{ if (S.cash<20) return say(null,'The cashier looks at your card and then at you.'); setDaily('bet'); S.cash-=20; if (rnd()<0.38){ S.cash+=50; say(null,'It comes in at 5/2. $50 back. The man with the form nods, once. Don\'t make a habit of it.'); } else say(null,'Fourth. The man with the form does not look up. $20 gone.'); }},
-    {l:'Study the form with the regular (1 energy)', s:'+1 Risk. Odds, overround, and why the house wins.', dis:daily('form'), f:()=>{ if (!useEnergy(1)) return; setDaily('form'); say(null,'He shows you how the odds add up to more than one, always, and who pays the difference. '+learn('risk',1,'bookies')); }},
+    {l:'$20 on the 3:30', cls:'red', s:'The odds say no. Nerve says maybe.', dis:daily('bet'), f:()=>{ if (S.cash<20) return say(null,'The cashier looks at your card and then at you.'); setDaily('bet'); S.cash-=20; if (dayRoll('bet')<0.38){ S.cash+=50; say(null,'It comes in at 5/2. $50 back. The man with the form nods, once. Don\'t make a habit of it.'); } else say(null,'Fourth. The man with the form does not look up. $20 gone.'); }},
+    {l:'Study the form with the regular (1 energy)', s:'+1 Risk. Odds, overround, and why the house wins.', dis:daily('form'), f:()=>{ if (!useEnergy(1)) return; setDaily('form'); say(null,'He shows you how the odds add up to more than one, always, and who pays the difference. '+learn('risk',1,'bookies')+'\n\n'+(collect('regular')||'')); }},
     {l:'Leave', f:stepBack}]); }
 
 /* reception & interviews. Only hiring firms interview; the rest are landmarks with a security desk. */
@@ -756,7 +863,7 @@ function interview(f, b){ const qs=INTERVIEWS[f.type]; let i=0, score=0; const b
   const next=()=>{ if (i>=qs.length) return verdict(); const q=qs[i++];
     say(bossN, q.q, q.a.map(a=>({l:a.l, f:()=>{ const w=f.likes.includes(a.s)?1:0.55; const roll=S.stats[a.s]*w+rnd()*1.6+S.cv.length*0.3; const pass=roll>=f.diff; score+=pass?1:0; toast(pass?'Good answer.':'Hm.'); next(); }}))); };
   const verdict=()=>{ gainXp(15); if (score>=2){ hire(f); return say(bossN, `${score===3?'Best interview I\'ve had all year.':'Good enough.'} You start now. Your desk is the yellow one.`, [{l:'Thank you.', f:()=>{ closeDlg(); go('office',f.id,9,13,'up'); }}]); }
-    S.cooldown[f.id]=S.day+5; if (rnd()<0.3){ S.stats.nerve++; toast('+1 Nerve. Rejection builds character.'); } return say(bossN, pick(['We\'ll be in touch. We won\'t, actually.','Not this time. Come back when you\'ve learned something.','Thank you for your time. The lift is to the left.']), [{l:'…', f:stepBack}]); };
+    S.cooldown[f.id]=S.day+5; if (progress('nerve',1)) toast('+1 Nerve. Rejection builds character.'); return say(bossN, pick(['We\'ll be in touch. We won\'t, actually.','Not this time. Come back when you\'ve learned something.','Thank you for your time. The lift is to the left.']), [{l:'…', f:stepBack}]); };
   next(); }
 function resign(){ const f=firm(); S.cv.push(f.id); S.flags.fromRank=S.job.rank; if (S.ms&&S.ms.firm===f.id) S.ms=null; S.job=null; for (const k of TICK) S.pos[k.t]=0; save(); hud(); }
 function hire(f){ if (S.job) resign(); const start=(S.flags.fromRank||0)>=2?2:1; S.flags.fromRank=0;
@@ -766,17 +873,18 @@ function hire(f){ if (S.job) resign(); const start=(S.flags.fromRank||0)>=2?2:1;
 function cafe(){ const m=msHere();
   say(null,'Café Liquidity. Flat whites, bankers on the phone, and a barista who knows everyone\'s order and everyone\'s bonus.', [
     foodOpt('Flat white',6,1,'cafeCoffee','Good coffee.'),
-    ...(m&&m.stage===1&&!m.clues.includes('cafe')?[{l:'Listen in on the next table', cls:'gold', s:'Earnings case clue', f:()=>say(null, addClue('cafe'))}]:[]),
-    {l:'Network (1 energy, $40)', s:'Charm · reputation, maybe +Charm', f:()=>{ if (S.cash<40) return say(null,'Networking costs money. You have none.'); if (!useEnergy(1)) return; S.cash-=40; const r=rnd()*4+S.stats.charm; const d=r>6?3:r>4?2:r>2.5?1:0; S.rep+=d; gainXp(10); let t=d?`You swap cards with a ${pick(['VP from Silverman Sachs','risk manager from Rearguard','trader from Bastion','grad from HBBB'])}. Reputation +${d}.`:'You talk to a man who turns out to be a recruiter for a timeshare company. Nothing gained.'; if (rnd()<0.2){ S.stats.charm++; t+=' You are getting better at this. +1 Charm.'; } const hiring=pick(FIRMS.filter(x=>x.id!=='blackboulder')); t+=`\n\nOverheard: ${hiring.name} is ${pick(['hiring','losing people','restructuring','having a good year'])}. Not that they'd take you.`; say(null,t); }},
+    ...(m&&m.stage===1&&!m.clues.includes('cafe')?[{l:'Listen in: the earnings case', cls:'gold', s:'Earnings case clue', f:()=>say(null, addClue('cafe'))}]:[]),
+    {l:'Listen in on the next table (1 energy)', s:'Sell-side talk. As reliable as sell-side talk.', dis:daily('fact:cafe'), f:()=>{ if(!useEnergy(1)) return; say(null, collect('cafe')||'Nothing worth hearing.'); }},
+    {l:'Network (1 energy, $40)', s:`Reputation +${S.stats.charm>=6?3:S.stats.charm>=4?2:1} · progress towards Charm`, f:()=>{ if (S.cash<40) return say(null,'Networking costs money. You have none.'); if (!useEnergy(1)) return; S.cash-=40; const d=S.stats.charm>=6?3:S.stats.charm>=4?2:1; S.rep+=d; gainXp(10); let t=`You swap cards with a ${dpick(dayRng('cafe'),['VP from Silverman Sachs','risk manager from Rearguard','trader from Bastion','grad from HBBB'])}. Reputation +${d}.`; if (progress('charm',1)) t+=' You are getting better at this. +1 Charm.'; say(null,t); }},
     {l:'Leave', f:stepBack}]); }
 function pubCity(){ say(null,'The Counting House. A pub in an old banking hall: pints under a glass dome, traders at the bar by noon, and the loudest man in the room is always from a hedge fund.', [
-    {l:'A pint with the traders (1 energy, $8)', s:'Chance of +Charm, a little reputation', dis:daily('pint'), f:()=>{ if (S.cash<8) return say(null,'Nine dollars for a pint and you have eight. The City.'); if (!useEnergy(1)) return; setDaily('pint'); S.cash-=8; gainXp(8); S.rep+=1; if (rnd()<0.25){ S.stats.charm++; say(null,'You make a table of traders laugh with a story about the post room. +1 Charm. Reputation +1.'); } else say(null, pick(['A trader explains why he is "structurally short everything". He buys the round. Reputation +1.','Someone from the Stock Exchange tells you the floor was better. Everyone over fifty says this. Reputation +1.'])); }},
+    {l:'A pint with the traders (1 energy, $8)', s:'Reputation +1 · progress towards Charm', dis:daily('pint'), f:()=>{ if (S.cash<8) return say(null,'Nine dollars for a pint and you have eight. The City.'); if (!useEnergy(1)) return; setDaily('pint'); S.cash-=8; gainXp(8); S.rep+=1; if (progress('charm',1)) say(null,'You make a table of traders laugh with a story about the post room. +1 Charm. Reputation +1.'+'\n\n'+(collect('pub')||'')); else say(null, dpick(dayRng('pint'),['A trader explains why he is "structurally short everything". He buys the round. Reputation +1.','Someone from the Stock Exchange tells you the floor was better. Everyone over fifty says this. Reputation +1.'])+'\n\n'+(collect('pub')||'')); }},
     {l:'Leave', f:stepBack}]); }
 function library(){ say(null,'Millbrook Library. Three shelves of finance, a kind librarian and a radiator that actually works.', [
     {l:'Study for the AFA exam (2 energy)', cls:'gold', s:'+2 study points, chance of +Analysis', f:()=>{ if (!useEnergy(2)) return; study(2); }},
     ...readMenu(null,'library',KNOW.map(t=>({l:`Borrow: ${t.t}`, k:t.k, s:t.d})),2,'library'),
     {l:'Leave', f:stepBack}]); }
-function study(n){ S.study.pts+=n; gainXp(10*n); let t=`You study. ${n} study point${n>1?'s':''} (${S.study.pts} total).`; if (rnd()<0.12*n){ S.stats.analysis++; t+=' Something clicks. +1 Analysis.'; } const need=S.study.cert===0?4:10; t+=S.study.cert>=2?'':`\nNext exam needs ${need} points${S.study.pts>=need?'. You\'re ready. The AFA Institute is in the city, north of the river.':'.'}`; say(null,t); }
+function study(n){ S.study.pts+=n; gainXp(10*n); let t=`You study. ${n} study point${n>1?'s':''} (${S.study.pts} total).`; if (progress('analysis',n)) t+=' Something clicks. +1 Analysis.'; const need=S.study.cert===0?4:10; t+=S.study.cert>=2?'':`\nNext exam needs ${need} points${S.study.pts>=need?'. You\'re ready. The AFA Institute is in the city, north of the river.':'.'}`; say(null,t); }
 function institute(){ const lvl=S.study.cert+1; if (lvl>2) return say(null,'AFA Institute. You hold both levels. The receptionist asks if you\'d like to teach.', [{l:'Leave', f:stepBack}]);
   const need=lvl===1?4:10, fee=lvl===1?300:600; const p=clamp(0.3+0.08*S.stats.analysis+0.01*knowTotal()+0.04*(S.study.pts-need),0.05,0.95);
   say(null,`AFA Institute. Associate Financial Analyst, level ${lvl}. Fee ${money(fee)}. You have ${S.study.pts} study points (${need} needed).\n\n${S.study.pts>=need?`Estimated chance: ${Math.round(p*100)}%. Knowledge helps.`:'You are not ready to sit it.'}`, [
@@ -787,7 +895,8 @@ function institute(){ const lvl=S.study.cert+1; if (lvl>2) return say(null,'AFA 
 function laptop(){ const canFund=netWorth()>=300000&&S.rep>=100;
   say(null,`Your laptop${S.home.tier===0?' on a crate':''}. Payslips from BlackBoulder. Net worth ${money(netWorth())}.`, [
     {l:'Knowledge book', s:`${knowTitle()} · ${knowTotal()}/60`, f:()=>{ closeDlg(); openSheet(); }},
-    ...readMenu(null,'online',[{l:'Read annual reports online (1 energy)', k:'accounting', s:'+1 Accounting. Footnotes and all.'},{l:'Read a valuation blog (1 energy)', k:'valuation', s:'+1 Valuation. Opinionated, mostly right.'}],2,'online'),
+    ...readMenu(null,'online',[{l:'Read annual reports online (1 energy)', k:'accounting', s:'+1 Accounting. Footnotes and all, and a fact if you can read it.', post:()=>collect('online')},{l:'Read a valuation blog (1 energy)', k:'valuation', s:'+1 Valuation. Opinionated, mostly right.'}],2,'online'),
+    {l:'Check a note against the filings (1 energy)', s:'Hearsay in your notebook, tested against the annual report', f:()=>checkMenu('accounting')},
     {l:'Study for the AFA exam (2 energy)', s:'+1 study point (the library in Millbrook gives 2)', f:()=>{ if (!useEnergy(2)) return; study(1); }},
     {l:'Hawkeye Brokers: personal account', s:'Trade your own money', f:brokerage},
     {l:'Housing', s:HOMES[S.home.tier].t, f:housing},
@@ -806,7 +915,7 @@ function canTrade(k, dir){ const r=rules(); if (dir<0&&r.noShort) return `${firm
 function deskMenu(){ const m=msHere(); const open=TICK.filter(k=>S.pos[k.t]).map(k=>`${k.t}: ${S.pos[k.t]>0?'long':'short'} ${money(Math.abs(S.pos[k.t])*S.px[k.t])}`).join('\n')||'none';
   say(null, `Your desk. Three screens, a cold cup of coffee. Book ${moneyM(book())}.\nOpen positions:\n${open}`, [
     {l:'Research a stock (2 energy)', s:'Read the signal with your Analysis and knowledge', f:()=>{ if (!useEnergy(2)) return; closeDlg(); openResearch(); }},
-    ...(m&&m.stage===1&&!m.bet ? [{l:`Take a view on ${m.tk}`, cls:'gold', s:`${m.clues.length} of 5 clues · reports in ${m.earnDay-S.day} day(s)`, f:()=>{ const stake=Math.min(0.4, Math.max(0.1, SC.firm.fireLoss*2), rules().maxSize||1); const cap=book()*stake*(m.big?2:1); const place=dir=>{ const err=canTrade(m.tk,dir); if (err) return say(null,err); const sh=Math.floor(cap/S.px[m.tk])*dir; S.pos[m.tk]+=sh; m.bet=dir>0?'long':'short'; S.flags.traded=true; gainXp(10); say(null, `${dir>0?'LONG':'SHORT'} ${m.tk} for ${money(Math.abs(sh)*S.px[m.tk])}${m.big?' with firm capital':''}. Now we wait.`); };
+    ...(m&&m.stage===1&&!m.bet ? [{l:`Take a view on ${m.tk}`, cls:'gold', s:`${m.clues.length} of 4 clues · reports in ${m.earnDay-S.day} day(s)`, f:()=>{ const stake=Math.min(0.4, Math.max(0.1, SC.firm.fireLoss*2), rules().maxSize||1); const cap=book()*stake*(m.big?2:1); const place=dir=>{ const err=canTrade(m.tk,dir); if (err) return say(null,err); const sh=Math.floor(cap/S.px[m.tk])*dir; S.pos[m.tk]+=sh; m.bet=dir>0?'long':'short'; S.flags.traded=true; gainXp(10); say(null, `${dir>0?'LONG':'SHORT'} ${m.tk} for ${money(Math.abs(sh)*S.px[m.tk])}${m.big?' with firm capital':''}. Now we wait.`); };
         say(null, `The ${m.tk} case. Clues: ${m.clues.map(c=>({mentor:first(SC.firm.staff.mentor.name),extra:first(SC.firm.staff.extra.name),terminal:'terminal',cafe:'café'})[c]).join(', ')||'none yet'}.\n${m.big?`${first(SC.firm.staff.boss.name)} has doubled your stake: ${Math.round(stake*200)}% of the book.`:`Stake: ${Math.round(stake*100)}% of the book.`}`, [{l:'LONG: they beat', f:()=>place(1)}, {l:'SHORT: they miss', f:()=>place(-1)}, {l:'Stay out', s:'The boss will ask why', f:()=>{ m.bet='none'; say(null,'You close the tab. Sometimes the best trade is no trade. Your boss may not agree.'); }}, {l:'Wait', f:closeDlg}]); }}] : []),
     {l:'Close a position', f:()=>{ const has=TICK.filter(k=>S.pos[k.t]); if (!has.length) return say(null,'You have no open positions.'); say(null,'Which one?', has.map(k=>({l:`Close ${k.t}`, f:()=>{ S.pos[k.t]=0; gainXp(3); say(null,`${k.t} closed.`); }})).concat([{l:'None', f:closeDlg}])); }},
     {l:'Stand up', f:closeDlg}]);
@@ -826,11 +935,11 @@ function openResearch(){
     c.strokeStyle='#3a4256'; c.lineWidth=1; for (let i=0;i<5;i++){ const y=20+i*70; c.beginPath(); c.moveTo(0,y); c.lineTo(700,y); c.stroke(); }
     c.strokeStyle=h[h.length-1]>=h[0]?'#5ee28a':'#ff6b6b'; c.lineWidth=3; c.beginPath(); h.forEach((v,i)=>{ const x=i/(h.length-1)*690+5, y=300-(v-mn)/rg*270; i?c.lineTo(x,y):c.moveTo(x,y); }); c.stroke();
     c.fillStyle='#a8adbd'; c.font='16px IBM Plex Sans'; c.fillText(`${k.t} · ${k.n} · ${S.px[k.t].toFixed(2)}`, 10, 316);
-    if (!S.signals[k.t] || S.signals[k.t].day!==S.day){ const clarity=clamp(0.18+S.stats.analysis*0.08+knowTotal()*0.012+(S.flags.quantModel?0.2:0),0,0.95); const noise=(rnd()-0.5)*0.03*(1-clarity); S.signals[k.t]={day:S.day, v:S.drift[k.t]+noise, clarity}; }
-    const sg=S.signals[k.t]; const strength=Math.abs(sg.v)>0.008?'strong':Math.abs(sg.v)>0.003?'weak':'no';
+    // no numbers leak from the hidden truth: the read is the notebook. Facts you hold on this name, stamped where the tape or a check has spoken.
+    const held=factsOn(k.t,true).slice(-5).reverse(); const sig=held.filter(f=>f.stamp==='signal').length, trp=held.filter(f=>f.stamp==='trap').length, unk=held.filter(f=>!f.stamp).length;
     const ex=(r.exclude||[]).includes(k.t)?'<br><small style="color:var(--red)">On the exclusion list here.</small>':'';
-    const notes=S.insights.filter(i=>i.tk===k.t&&i.status!=='wrong').slice(-2).map(i=>`<br><small>Your notes: ${i.text}</small>`).join('');
-    $('read').innerHTML=`Your read on <b>${k.t}</b>: ${strength} <b>${sg.v>0.003?'positive':sg.v<-0.003?'negative':''}</b> signal · clarity ${Math.round(sg.clarity*100)}%<br><small style="color:var(--ink-2)">${sg.clarity<0.5?'You are not sure. More Analysis and more knowledge give cleaner reads.':sg.clarity<0.75?'Fairly sure, but there is noise.':'Pretty sure.'}</small>${notes}${ex}`; }
+    const rows=held.map(f=>`<br><small>${srcName(f.src)}: ${f.text}${f.stamp?' <b>['+f.stamp.toUpperCase()+(f.checked?' ✓':'')+']</b>':''}</small>`).join('');
+    $('read').innerHTML=held.length?`What you hold on <b>${k.t}</b>: ${sig} confirmed · ${trp} exposed · ${unk} unverified${rows}<br><small style="color:var(--ink-2)">No number will tell you more than this. Decide.</small>${ex}`:`Nothing on <b>${k.t}</b>. The pack, the tape, Susan, the café, the Ledger.${ex}`; }
   drawRead();
   const place=dir=>{ const k=miniSel; const err=canTrade(k,dir); if (err){ toast(err); return; } const sh=Math.floor(book()*size/S.px[k])*dir; S.pos[k]+=sh; S.flags.traded=true; gainXp(8); m.classList.remove('open'); toast(`${dir>0?'LONG':'SHORT'} ${k} · ${money(Math.abs(sh)*S.px[k])}`); save(); };
   $('mLong').onclick=()=>place(1); $('mShort').onclick=()=>place(-1);
@@ -843,15 +952,21 @@ function gameOver(text){ save(); say(null, text+'\n\nGAME OVER.', [{l:'Start aga
 function endDay(){
   closeDlg(); $('mini').classList.remove('open');
   const f=firm(), j=S.job; const old={}; let pnl=0; const lines=[];
-  for (const k of TICK){ old[k.t]=S.px[k.t]; if (rnd()<0.1) S.drift[k.t]=(rnd()-0.5)*0.02; S.px[k.t]*=1+S.drift[k.t]+k.vol*gauss(); S.hist[k.t].push(S.px[k.t]); if (S.hist[k.t].length>40) S.hist[k.t].shift(); }
+  // the hidden truth (drift) changes only on announced dates (earnings, rate decisions: see the calendar), never silently overnight
+  for (const k of TICK){ old[k.t]=S.px[k.t]; S.px[k.t]*=1+S.drift[k.t]+k.vol*gauss(); S.hist[k.t].push(S.px[k.t]); if (S.hist[k.t].length>40) S.hist[k.t].shift(); }
   let earn='';
   if (S.ms&&S.ms.stage===1&&S.day+1>=S.ms.earnDay){ const m=S.ms, t=m.tk; const jump=(m.truth==='beat'?0.18:-0.19)+0.03*gauss(); S.px[t]*=1+jump; S.hist[t].push(S.px[t]); m.stage=2; S.drift[t]=m.truth==='beat'?0.006:-0.006;
     earn=`\n\n${t} REPORTS: ${m.truth==='beat'?'BEATS estimates. Stock +'+Math.round(jump*100)+'%':'MISSES. Stock −'+Math.round(-jump*100)+'%'}.${j&&m.firm===j.firm?` ${first(f.staff.boss.name)} wants to see you.`:''}`; }
-  // pitched insights come due after three days of tape
-  const calls=[]; for (const i of S.insights){ if (i.status==='pitched'&&S.day+1>=i.pday+3){ const mv=S.px[i.tk]/i.ppx-1; const right=Math.sign(mv)===i.dir; i.status=right?'right':'wrong'; i.move=mv; const boss=i.to==='boss'; if (right){ trust(boss?9:6); S.rep+=1; gainXp(25); if (j&&j.rank>=1) j.frep+=3; } else trust(boss?-4:-2); calls.push(`${i.tk} call (${i.dir>0?'positive':'negative'}): stock ${pct(mv*100)} since. ${right?'RIGHT. Trust +'+(boss?9:6):'Wrong. Trust −'+(boss?4:2)}.`); } }
+  // theses come due after three days of tape. Right or wrong is the truth captured at the pitch; the cited facts decide how much it was worth.
+  const calls=[]; for (const i of S.insights){ if (i.status==='pitched'&&S.day+1>=i.pday+3){ const mv=S.px[i.tk]/i.ppx-1; const truth=i.truth||Math.sign(mv)||1; const right=i.dir===truth; i.status=right?'right':'wrong'; i.move=mv; const boss=i.to==='boss';
+      const cf=(i.cites||[]).map(factById).filter(Boolean); const ev={sig:0,trap:0,noise:0}; let bonus=0; for (const f of cf){ ev[f.kind==='signal'?'sig':f.kind==='trap'?'trap':'noise']++; if (f.kind==='signal') bonus+=2+(f.checked?1:0); if (f.kind==='trap') bonus-=2; } if (i.hunch&&!right) bonus-=1; i.ev=ev;
+      const d=(right?(boss?9:6):(boss?-4:-2))+bonus; trust(d); if (right){ S.rep+=1; gainXp(25); if (j&&j.rank>=1) j.frep+=3; }
+      for (const f of S.facts) if (f.tk===i.tk&&f.day<=i.pday) stampFact(f);
+      const missed=[...new Set(S.facts.filter(f=>f.tk===i.tk&&f.day<=i.pday&&f.kind==='signal'&&canRead(f)&&!(i.cites||[]).includes(f.id)).map(f=>srcName(f.src)))];
+      calls.push(`${i.tk} thesis (${i.dir>0?'long':'short'}): ${right?'RIGHT':'WRONG'}. Stock ${pct(mv*100)} since. Evidence: ${cf.map(f=>srcName(f.src)+' '+f.kind.toUpperCase()).join(', ')||'none (a hunch)'}. Trust ${d>=0?'+':''}${d}.${missed.length?' You walked past: '+missed.join(', ')+'.':''}`); } }
   if (j){ if (book()>0){ for (const k of TICK){ const p=S.pos[k.t]*(S.px[k.t]-old[k.t]); pnl+=p; if (S.pos[k.t]) lines.push(`${k.t} ${money(p)}`); } j.pnlQ+=pnl; j.rivalPnl+=book()*(0.0015+0.006*gauss()); if (pnl>0) gainXp(Math.min(30,Math.round(pnl/book()*800))); } j.days++; S.cash+=salary(); }
   const ppnl=TICK.reduce((a,k)=>a+(S.ppos[k.t]||0)*(S.px[k.t]-old[k.t]),0);
-  S.day++; S.energy=maxEnergy(); S.flags.daily={};
+  S.day++; S.energy=maxEnergy(); S.flags.daily={}; S.facts=S.facts.filter(f=>f.day>=S.day-6||cited(f.id));
   let txt=`Overnight: ${j&&j.rank>=1?money(pnl):'no book yet'}${lines.length?'\n'+lines.join('\n'):''}${ppnl?`\nPersonal account ${money(ppnl)}.`:''}${calls.length?'\n\n'+calls.join('\n'):''}${earn}\n\nSalary +${money(salary())}.`;
   if ((S.day-1)%5===0){ const r=HOMES[S.home.tier].rent; S.cash-=r; txt+=` Rent −${money(r)}.`; if (S.cash<-2*r){ S.over='evicted'; goHome(); return gameOver(txt+`\n\nMonday. The landlord is on the stairs with a locksmith. "Two weeks behind. I'm sorry, love." You carry a bin bag of shirts to the bus stop and don't have the fare.`); } if (S.cash<0) txt+=' You are overdrawn.'; }
   if (S.insider&&S.day%3===0&&rnd()<0.35){ S.over='sec'; goHome(); return gameOver(txt+`\n\nTwo people in grey suits are waiting at your desk in the morning. Ingrid stands behind them, looking away.\n\n"We'd like to talk about your trades in ${tk(S.insider.tk).n}."`); }
@@ -885,10 +1000,12 @@ function intro(){ S.flags.intro=true; say(null,'Monday, 05:50. Ashbury, the wron
 /* ---------- menu sheet: stats, career, the knowledge book, insights, quests ---------- */
 function openSheet(){
   const b=$('sheetBody'); const f=firm(), j=S.job;
-  const stat=(k,l)=>`<div class="statrow"><span>${l}</span><div class="bar"><i style="width:${Math.min(100,S.stats[k]*10)}%"></i></div>${S.pts?`<button data-st="${k}">+1</button>`:`<span>${S.stats[k]}</span>`}</div>`;
+  const stat=(k,l)=>`<div class="statrow"><span>${l}</span><div class="bar"><i style="width:${Math.min(100,S.stats[k]*10)}%"></i></div>${S.pts?`<button data-st="${k}">+1</button>`:`<span>${S.stats[k]} <small style="color:var(--ink-2)">${(S.prog&&S.prog[k])||0}/${PROG_NEED[k]}</small></span>`}</div>`;
   const nextRep=j&&j.rank>=1&&j.rank<TOP?Math.round(RANKS[j.rank+1].rep*f.promo):null;
   const resolved=S.insights.filter(i=>i.status==='right'||i.status==='wrong').length;
-  const insRows=S.insights.slice().reverse().slice(0,8).map(i=>`<div class="ins"><b>${i.tk}</b> ${i.dir>0?'positive':'negative'} · ${topicName(i.topic)} · <span class="${i.status==='right'?'ok':i.status==='wrong'?'no':'wait'}">${{new:'UNPITCHED',pitched:'PITCHED · '+Math.max(0,i.pday+3-S.day)+'d',right:'RIGHT '+pct(i.move*100),wrong:'WRONG '+pct(i.move*100)}[i.status]}</span><br><small style="color:var(--ink-2)">${i.text}</small></div>`).join('')||'<div style="font-size:13px;color:var(--ink-2)">Nothing yet. Read: insights fall out of reading.</div>';
+  const fRows=S.facts.slice().reverse().slice(0,8).map(f=>{ const ok=canRead(f); const st=f.stamp?`<span class="${f.stamp==='signal'?'ok':f.stamp==='trap'?'no':'wait'}">${f.stamp.toUpperCase()}${f.checked?' ✓':''}</span>`:'<span class="wait">UNSTAMPED</span>'; return `<div class="ins"><b>${f.tk}</b> ${srcName(f.src)} · ${st}<br><small style="color:var(--ink-2)">${ok?f.text:f.dim+' ('+topicName(f.topic)+' '+f.lvl+' to read)'}</small></div>`; }).join('')||'<div style="font-size:13px;color:var(--ink-2)">Empty. The pack, the tape, the train, Susan, the café: everything you hear goes in here.</div>';
+  const insRows=S.insights.slice().reverse().slice(0,8).map(i=>`<div class="ins"><b>${i.tk}</b> ${i.dir>0?'long':'short'} · <span class="${i.status==='right'?'ok':i.status==='wrong'?'no':'wait'}">${{new:'UNPITCHED',pitched:'PITCHED · '+Math.max(0,i.pday+3-S.day)+'d',right:'RIGHT '+pct(i.move*100),wrong:'WRONG '+pct(i.move*100)}[i.status]}</span>${i.ev?` · ${i.ev.sig} for, ${i.ev.trap} against`:''}<br><small style="color:var(--ink-2)">${i.text}</small></div>`).join('')||'<div style="font-size:13px;color:var(--ink-2)">No theses yet. Build one from your notebook in a chat with Susan or Lawrence.</div>';
+  const srcRows=Object.keys(S.src).map(id=>{ const l=S.src[id], s=SOURCES[id]||{name:id,where:'',profile:'media'}; const n=l.right+l.wrong; const v=n>=3?(l.right/n>=0.75?'Worth the walk.':l.right/n<=0.4?((s.profile==='book'||s.profile==='hostile')?'Talks his book.':'Wrong when it matters.'):'Mixed.'):''; return `<div class="row"><div>${s.name}<small>${s.where} · ${l.right} right · ${l.wrong} wrong · ${l.noise} irrelevant</small></div><span class="${v==='Worth the walk.'?'ok':v&&v!=='Mixed.'?'no':'wait'}" style="font-family:var(--pix);font-size:10px">${v}</span></div>`; }).join('');
   b.innerHTML=`<h2>${rankName()}${f?' · '+f.name:''} · level ${S.lvl}</h2><div class="statrow"><span>XP</span><div class="bar"><i style="width:${S.xp/xpNeed()*100}%"></i></div><span>${S.xp}/${xpNeed()}</span></div>
     ${stat('analysis','Analysis')}${stat('charm','Charm')}${stat('nerve','Nerve')}
     <div class="statrow"><span>Reputation</span><div class="bar"><i style="width:${clamp(S.rep,0,100)}%"></i></div><span>${S.rep}</span></div>
@@ -898,8 +1015,9 @@ function openSheet(){
     <h2 style="margin-top:14px">Book ${moneyM(book())} · quarter P&amp;L ${money(j.pnlQ)} · day ${j.days%12}/12</h2><div class="pos">${TICK.filter(k=>S.pos[k.t]).map(k=>`<span>${k.t}</span><span>${S.pos[k.t]>0?'long':'short'}</span><span>${money(Math.abs(S.pos[k.t])*S.px[k.t])}</span>`).join('')||'<span>no positions</span>'}</div>`:''}
     <h2 style="margin-top:14px">Knowledge · ${knowTitle()} · ${knowTotal()}/60</h2>
     ${KNOW.map(t=>`<div class="statrow"><span>${t.t}</span><div class="bar"><i class="blue" style="width:${(S.know[t.k]||0)*10}%"></i></div><span>${S.know[t.k]||0}</span></div>`).join('')}
-    <div style="font-size:13px;color:var(--ink-2);margin:4px 0">${S.reads} things read · ${correctCalls()} of ${resolved} calls right · research clarity ${Math.round(clamp(0.18+S.stats.analysis*0.08+knowTotal()*0.012+(S.flags.quantModel?0.2:0),0,0.95)*100)}%</div>
-    <h2 style="margin-top:14px">Insights</h2>${insRows}
+    <div style="font-size:13px;color:var(--ink-2);margin:4px 0">${S.facts.length} facts in the notebook · ${S.reads} things read · ${correctCalls()} of ${resolved} theses right</div>
+    <h2 style="margin-top:14px">Notebook</h2>${fRows}
+    <h2 style="margin-top:14px">Theses</h2>${insRows}${srcRows?'<h2 style="margin-top:14px">Sources</h2>'+srcRows:''}
     <h2 style="margin-top:14px">Personal · cash ${money(S.cash)} · net worth ${money(netWorth())}</h2><div class="pos">${TICK.filter(k=>S.ppos[k.t]).map(k=>`<span>${k.t}</span><span>${S.ppos[k.t]} sh</span><span>${money(S.ppos[k.t]*S.px[k.t])}</span>`).join('')||'<span>no holdings</span>'}</div>
     <div style="font-size:13px;color:var(--ink-2)">${HOMES[S.home.tier].t} · rent ${money(HOMES[S.home.tier].rent)}/week · AFA level ${S.study.cert} · ${S.study.pts} study points${S.paper?' · Financial Ledger in your bag':''}</div>
     <h2 style="margin-top:14px">Quests</h2>${QUESTS.filter(q=>!q.show||q.show(S)).map(q=>`<div class="q ${q.done(S)?'done':''}"><b>${q.t}</b><small>${q.d}</small></div>`).join('')}
@@ -917,34 +1035,57 @@ function hud(){ $('hDay').textContent=`Day ${S.day} · ${DAYS[(S.day-1)%5]}`; $(
 const P={x:S.player.x, y:S.player.y, fx:S.player.x, fy:S.player.y, dir:S.player.dir||'down', moving:false, path:[], after:null};
 const npcAt=(x,y)=>NPCS.find(n=>n.x===x&&n.y===y);
 const blocked=(x,y)=>solid(tile(x,y))||!!npcAt(x,y);
-function tryMove(dx,dy){ if (dlg||P.moving||travelling) return; P.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; const nx=P.x+dx, ny=P.y+dy; if (blocked(nx,ny)) return; P.x=nx; P.y=ny; P.moving=true; }
+function tryMove(dx,dy){ if (dlg||P.moving||travelling) return; P.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; const nx=P.x+dx, ny=P.y+dy; if (blocked(nx,ny)) return; P.px=P.x; P.py=P.y; P.x=nx; P.y=ny; P.moving=true; }
 function facing(){ const d={left:[-1,0],right:[1,0],up:[0,-1],down:[0,1]}[P.dir]; return {x:P.x+d[0], y:P.y+d[1]}; }
 const platformAt=(x,y)=>(SC.platforms||[]).find(p=>y===p.y&&x>=p.x0&&x<=p.x1);
-function canAct(){ const f=facing(); const c=tile(f.x,f.y); return !!npcAt(f.x,f.y) || interactable(c) || c==='O' || !!platformAt(f.x,f.y) || (SC.k==='home'&&c==='W'); }
-function act(){ if (dlg||travelling) return; const f=facing(); const n=npcAt(f.x,f.y); if (n){ n.dir={left:'right',right:'left',up:'down',down:'up'}[P.dir]; return DIALOG[n.id](n); } const c=tile(f.x,f.y); if (c==='O'||platformAt(f.x,f.y)) return tryMove(f.x-P.x,f.y-P.y); if (interactable(c)||(SC.k==='home'&&c==='W')) interactTile(c); }
+const bldAt=(x,y)=>(SC.buildings||[]).find(b=>x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h);
+const landmarkAt=(x,y)=>{ const b=bldAt(x,y); return b&&b.door===false&&b.text?b:null; };
+function canAct(){ const f=facing(); const c=tile(f.x,f.y); return !!npcAt(f.x,f.y) || interactable(c) || c==='O' || !!platformAt(f.x,f.y) || (SC.k==='home'&&c==='W') || !!landmarkAt(f.x,f.y); }
+function act(){ if (dlg||travelling) return; const f=facing(); const n=npcAt(f.x,f.y); if (n){ n.dir={left:'right',right:'left',up:'down',down:'up'}[P.dir]; return DIALOG[n.id](n); } const c=tile(f.x,f.y); if (c==='O'||platformAt(f.x,f.y)) return tryMove(f.x-P.x,f.y-P.y); const lm=landmarkAt(f.x,f.y); if (lm) return doorTrigger(lm); if (interactable(c)||(SC.k==='home'&&c==='W')) interactTile(c); }
 function onArrive(){ S.player={x:P.x,y:P.y,dir:P.dir}; if (dlg||travelling) return; const c=tile(P.x,P.y); const pl=platformAt(P.x,P.y); if (c==='O'||pl){ P.path=[]; P.after=null; } if (c==='O'){ const b=SC.buildings.find(b=>b.dx===P.x&&b.dy===P.y); if (b) return doorTrigger(b); } if (pl) return stopDialog(pl.dir); }
 const held=new Set();
 const KEYS={ArrowUp:'0,-1',ArrowDown:'0,1',ArrowLeft:'-1,0',ArrowRight:'1,0',w:'0,-1',s:'0,1',a:'-1,0',d:'1,0'};
 addEventListener('keydown', e=>{ const k=KEYS[e.key]; if (k){ held.add(k); e.preventDefault(); } if (e.key==='Enter'||e.key===' '){ if (dlg){ const first=$('choices').querySelector('button'); if (first&&$('choices').children.length===1) first.click(); } else act(); e.preventDefault(); } if (e.key==='Escape'){ $('sheet').classList.remove('open'); $('mini').classList.remove('open'); } });
 addEventListener('keyup', e=>{ const k=KEYS[e.key]; if (k) held.delete(k); });
+// view + zoom. view.zoom multiplies the base scale (12 tiles across); it is a per-device preference, kept in localStorage.
+const cv=$('game'); let view={scale:3, ox:0, oy:0, zoom:1};
+try{ const z=parseFloat(localStorage.getItem('rota.zoom')); if (z>0) view.zoom=clamp(z,0.5,2.5); }catch(e){}
+function setZoom(z){ view.zoom=clamp(z,0.5,2.5); try{ localStorage.setItem('rota.zoom',view.zoom.toFixed(3)); }catch(e){} resize(); }
+$('zIn').addEventListener('click',()=>setZoom(view.zoom*1.25)); $('zOut').addEventListener('click',()=>setZoom(view.zoom/1.25));
+cv.addEventListener('wheel', e=>{ setZoom(view.zoom*(e.deltaY<0?1.1:0.9)); e.preventDefault(); }, {passive:false});
+// pointers on the canvas: one finger lifted without moving = a tap; two fingers = pinch zoom
+const ptrs=new Map(); let pinch=null, tapStart=null;
+cv.addEventListener('pointerdown', e=>{ if (e.pointerType==='touch') document.body.classList.add('touch'); ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch={d0:Math.max(20,Math.hypot(a.x-b.x,a.y-b.y)), z0:view.zoom}; tapStart=null; } else if (ptrs.size===1) tapStart={x:e.clientX,y:e.clientY,t:performance.now()}; });
+cv.addEventListener('pointermove', e=>{ const p=ptrs.get(e.pointerId); if (!p) return; p.x=e.clientX; p.y=e.clientY; if (pinch&&ptrs.size===2){ const [a,b]=[...ptrs.values()]; setZoom(pinch.z0*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d0); } });
+const endPtr=e=>{ if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId); if (ptrs.size<2) pinch=null;
+  if (ptrs.size===0){ if (tapStart&&Math.hypot(e.clientX-tapStart.x,e.clientY-tapStart.y)<14&&performance.now()-tapStart.t<700) tap(e.clientX,e.clientY); tapStart=null; } };
+cv.addEventListener('pointerup',endPtr); cv.addEventListener('pointercancel',endPtr); cv.addEventListener('pointerleave',endPtr);
+// joystick: drag the knob; the dominant axis becomes a held direction, exactly like an arrow key
+const joy=$('joy'), knob=$('knob'); let joyDir=null, joyId=null;
+function joyMove(cx,cy){ const r=joy.getBoundingClientRect(); const R=r.width/2; const dx=cx-(r.left+R), dy=cy-(r.top+R); const d=Math.hypot(dx,dy); const m=Math.min(d,R-22); knob.style.transform=d?`translate(${dx/d*m}px,${dy/d*m}px)`:''; joyDir=d<R*0.25?null:Math.abs(dx)>Math.abs(dy)?(dx<0?'-1,0':'1,0'):(dy<0?'0,-1':'0,1'); }
+joy.addEventListener('pointerdown', e=>{ document.body.classList.add('touch'); joyId=e.pointerId; try{ joy.setPointerCapture(e.pointerId); }catch(x){} joyMove(e.clientX,e.clientY); e.preventDefault(); });
+joy.addEventListener('pointermove', e=>{ if (e.pointerId===joyId) joyMove(e.clientX,e.clientY); });
+const joyEnd=e=>{ if (e.pointerId!==joyId) return; joyId=null; joyDir=null; knob.style.transform=''; };
+joy.addEventListener('pointerup',joyEnd); joy.addEventListener('pointercancel',joyEnd); joy.addEventListener('lostpointercapture',joyEnd);
+$('actBtn').addEventListener('pointerdown', e=>{ e.preventDefault(); if (dlg){ const bs=$('choices').children; if (bs.length===1) bs[0].click(); return; } act(); });
 // tap to walk (BFS)
-const cv=$('game'); let view={scale:3, ox:0, oy:0};
-cv.addEventListener('pointerdown', e=>{ if (dlg||travelling) return; const r=cv.getBoundingClientRect(); const wx=Math.floor(((e.clientX-r.left)*(cv.width/r.width)/view.scale+view.ox)/T), wy=Math.floor(((e.clientY-r.top)*(cv.height/r.height)/view.scale+view.oy)/T);
+function tap(cx,cy){ if (dlg||travelling) return; const r=cv.getBoundingClientRect(); const wx=Math.floor(((cx-r.left)*(cv.width/r.width)/view.scale+view.ox)/T), wy=Math.floor(((cy-r.top)*(cv.height/r.height)/view.scale+view.oy)/T);
   const n=npcAt(wx,wy); const c=tile(wx,wy);
   if (n || interactable(c) || (SC.k==='home'&&c==='W')){ const adj=[[0,1],[0,-1],[1,0],[-1,0]].map(([dx,dy])=>({x:wx+dx,y:wy+dy})).filter(p=>!blocked(p.x,p.y)); const path=adj.map(a=>bfs(P,a)).filter(Boolean).sort((a,b)=>a.length-b.length)[0]; if (path){ P.path=path; P.after={x:wx,y:wy}; } else if (Math.abs(wx-P.x)+Math.abs(wy-P.y)===1){ P.dir=wx<P.x?'left':wx>P.x?'right':wy<P.y?'up':'down'; act(); } return; }
   let tx=wx, ty=wy;
   if (c==='B'){ const b=SC.buildings.find(b=>wx>=b.x&&wx<b.x+b.w&&wy>=b.y&&wy<b.y+b.h); if (b){ if (b.door===false){ if (b.text) say(null,b.text); return; } tx=b.dx; ty=b.dy; } }
   else if ((c==='-'||c==='=')&&(SC.platforms||[]).length){ const p=SC.platforms.slice().sort((a,b)=>Math.abs(a.y-wy)-Math.abs(b.y-wy))[0]; tx=clamp(wx,p.x0,p.x1); ty=p.y; }
-  if (!solid(tile(tx,ty))){ const path=bfs(P,{x:tx,y:ty}); if (path) { P.path=path; P.after=null; } } });
+  if (!solid(tile(tx,ty))){ const path=bfs(P,{x:tx,y:ty}); if (path) { P.path=path; P.after=null; } } }
 function bfs(from,to){ if (from.x===to.x&&from.y===to.y) return []; const q=[[from.x,from.y]], prev=new Map([[from.x+','+from.y,null]]); let steps=0; while(q.length&&steps++<9000){ const [x,y]=q.shift(); for (const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]){ const nx=x+dx, ny=y+dy, k=nx+','+ny; if (prev.has(k)||blocked(nx,ny)) continue; prev.set(k,x+','+y); if (nx===to.x&&ny===to.y){ const path=[]; let cur=k; while(cur&&cur!==from.x+','+from.y){ const [px,py]=cur.split(',').map(Number); path.unshift({x:px,y:py}); cur=prev.get(cur); } return path; } q.push([nx,ny]); } } return null; }
 
 /* ---------- render loop ---------- */
 const ctx=cv.getContext('2d'); let frame=0, last=performance.now();
-function resize(){ const dpr=Math.min(devicePixelRatio||1,3); const w=cv.clientWidth, h=cv.clientHeight; cv.width=Math.floor(w*dpr); cv.height=Math.floor(h*dpr); view.scale=Math.max(2, Math.floor(dpr*w/(12*T))); ctx.imageSmoothingEnabled=false; }
+function resize(){ const dpr=Math.min(devicePixelRatio||1,3); const w=cv.clientWidth, h=cv.clientHeight; cv.width=Math.floor(w*dpr); cv.height=Math.floor(h*dpr); view.scale=Math.max(2, Math.round(dpr*w/(12*T)*view.zoom)); ctx.imageSmoothingEnabled=false; }
 addEventListener('resize',resize);
 function update(dt){
   if (!P.moving && !dlg && !travelling){ if (P.path.length){ const n=P.path[0]; if (!blocked(n.x,n.y)){ tryMove(n.x-P.x,n.y-P.y); P.path.shift(); if (!P.path.length && P.after){ const a=P.after; P.after=null; setTimeout(()=>{ P.dir=a.x<P.x?'left':a.x>P.x?'right':a.y<P.y?'up':'down'; act(); }, 160); } } else P.path=[]; }
-    else { const h=[...held][0]; if (h){ const [dx,dy]=h.split(',').map(Number); tryMove(dx,dy); } } }
+    else { const h=joyDir||[...held][0]; if (h){ const [dx,dy]=h.split(',').map(Number); tryMove(dx,dy); } } }
   if (P.moving){ const sp=dt*7; P.fx+=clamp(P.x-P.fx,-sp,sp); P.fy+=clamp(P.y-P.fy,-sp,sp); if (Math.abs(P.fx-P.x)<0.01&&Math.abs(P.fy-P.y)<0.01){ P.fx=P.x; P.fy=P.y; P.moving=false; onArrive(); } }
   for (const n of NPCS){ n.t+=dt; if (n.patrol && !dlg){ if (n.fx===n.x && n.fy===n.y && Math.floor(n.t)%6===0 && n.t%1<dt){ const tgt=n.patrol[Math.floor(n.t/6)%2]; const dx=Math.sign(tgt[0]-n.x), dy=Math.sign(tgt[1]-n.y); const nx=n.x+(dx||0), ny=dx?n.y:n.y+dy; if ((dx||dy)&&!blocked(nx,ny)&&!(nx===P.x&&ny===P.y)){ n.x=nx; n.y=ny; n.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; } } const sp=dt*4; n.fx+=clamp(n.x-n.fx,-sp,sp); n.fy+=clamp(n.y-n.fy,-sp,sp); } }
   const W=SC.rows[0].length; for (const c of (SC.cars||[])){ c.x+=c.dir*c.sp*dt; if (c.x>W+3) c.x=-4; if (c.x<-4) c.x=W+3; }
@@ -1020,8 +1161,8 @@ function questFor(n){ const f=SC.firm, j=S.job; if (!f||!j) return false; const 
   if (k==='rival') return j.rank>=1&&((S.ms&&S.ms.firm===f.id&&S.ms.stage>=2&&!S.flags['msRival_'+f.id]) || (!S.flags['tip_'+f.id]&&j.days-j.promoDay>=5&&affOf('rival')>-5));
   if (k==='extra'){ if (j.rank===0) return !S.flags.riskLesson; if (n.kind==='compliance') return S.flags.reportPending===f.id; if (n.kind==='quant') return !S.flags.quantModel; return !S.flags['intern_'+f.id]; }
   return false; }
-window.__dj={P,bfs,act,get S(){return S},set S(v){S=v},view,tile,go,endDay,hire,firmById,FIRMS,quarter,fresh,save,get SC(){return SC},closeDlg,travel,learn,maybeInsight,promote,demote,openSheet,stopDialog,interactTile,doorTrigger,DIALOG,get NPCS(){return NPCS},get dlg(){return dlg},get travelling(){return travelling},TOWN,HOMES,KNOW,laptop,housing,goHome,leaveHome,hud};
-function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now; frame++; update(dt); draw(); requestAnimationFrame(loop); }
+window.__dj={P,bfs,act,get S(){return S},set S(v){S=v},view,tile,go,endDay,dayRng,dayRoll,dpick,setSeed:s=>{ S.seed=s; save(); },progress,PROG_NEED,landmarkAt,bldAt,canAct,skipDays:n=>{ for (let i=0;i<n;i++){ endDay(); closeDlg(); } },TICK,say,toast,trust,aff,affOf,QUESTS,questFor,startMission,hash,hire,firmById,FIRMS,quarter,fresh,save,get SC(){return SC},closeDlg,travel,learn,promote,demote,FACT_TEMPLATES,SOURCES,PROFILES,NOISE_LINE,todayFact,collect,canRead,isExpert,checkFact,checkMenu,thesisMenu,pitchThesis,ledgerAdd,factsOn,pitchable,truthSign,stampFact,factById,openSheet,stopDialog,interactTile,doorTrigger,DIALOG,get NPCS(){return NPCS},get dlg(){return dlg},get travelling(){return travelling},TOWN,HOMES,KNOW,laptop,housing,goHome,leaveHome,hud,setZoom,stepBack,tap,get joyDir(){return joyDir}};
+function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now; frame++; update(dt); draw(); document.body.classList.toggle('indlg', !!dlg||travelling); requestAnimationFrame(loop); }
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) save(); });
 
 /* ---------- boot ---------- */
