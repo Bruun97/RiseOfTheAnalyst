@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d0f16">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rise of the Analyst">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="description" content="Pixel-art RPG: from an unemployed graduate in a village bedsit to partner in the financial district of Lombard City.">
+<title>Rise of the Analyst</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* One-screen phone game. Pixel canvas on top, RPG dialog box docked at the bottom, d-pad + action button overlay. Night-time city pixel art, bone-white UI chrome. */
+:root{ --bg:#0d0f16; --ui:#161a26; --ui2:#222838; --line:#3a4256; --ink:#f1efe6; --ink-2:#a8adbd; --gold:#f5c542; --red:#ff6b6b; --green:#5ee28a;
+  --pix:'Silkscreen','Courier New',monospace; --sans:'IBM Plex Sans',system-ui,sans-serif; color-scheme:dark }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent}
+#app{position:absolute;inset:0;display:flex;flex-direction:column;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+#stage{position:relative;flex:1;min-height:0;background:#0a0c12}
+#game{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+.hud{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;right:8px;display:flex;justify-content:space-between;gap:6px;pointer-events:none;font-family:var(--pix);font-size:11px;letter-spacing:.5px}
+.hud .box{background:rgba(13,15,22,.85);border:2px solid var(--line);padding:5px 8px;color:var(--ink);white-space:nowrap;box-shadow:2px 2px 0 #000;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+.hud .box small{color:var(--ink-2);font-size:9px;display:block;overflow:hidden;text-overflow:ellipsis}
+.hud .en{color:var(--gold)}
+.hud #menuBtn{pointer-events:auto;font-family:var(--pix);font-size:11px;background:var(--ui2);color:var(--ink);border:2px solid var(--line);padding:5px 10px;box-shadow:2px 2px 0 #000;min-height:34px}
+.hud .right{display:flex;gap:6px}
+#dlg{background:var(--ui);border-top:3px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));display:none;gap:10px;flex-direction:column;max-height:58%;overflow:auto}
+#dlg.open{display:flex}
+.dl{display:flex;gap:10px;align-items:flex-start}
+.portrait{width:56px;height:56px;flex:none;border:2px solid var(--line);background:#0a0c12;image-rendering:pixelated}
+.dname{font-family:var(--pix);font-size:11px;color:var(--gold);margin:0 0 4px;letter-spacing:.5px}
+.dtext{margin:0;font-size:15px;line-height:1.45;min-height:44px;white-space:pre-line}
+.choices{display:grid;gap:6px}
+.choices button{font:600 14px var(--sans);text-align:left;background:var(--ui2);color:var(--ink);border:2px solid var(--line);padding:10px 12px;min-height:44px;box-shadow:2px 2px 0 #000}
+.choices button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #000}
+.choices button.gold{border-color:var(--gold);color:var(--gold)}
+.choices button.red{border-color:var(--red);color:var(--red)}
+.choices button.green{border-color:var(--green);color:var(--green)}
+.choices button:disabled{opacity:.45}
+.choices button small{display:block;font-weight:400;font-size:12px;color:var(--ink-2)}
+.sheet{position:absolute;inset:0;background:rgba(10,12,18,.94);z-index:9;display:none;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(14px + env(safe-area-inset-bottom,0px));overflow:auto}
+.sheet.open{display:flex}
+.sheet h2{font-family:var(--pix);font-size:14px;color:var(--gold);margin:0 0 8px}
+.sheet .close{align-self:flex-end;font-family:var(--pix);font-size:11px;background:var(--ui2);color:var(--ink);border:2px solid var(--line);padding:6px 12px;min-height:36px;margin-bottom:8px}
+.statrow{display:grid;grid-template-columns:110px 1fr auto;gap:8px;align-items:center;font-size:14px;margin:4px 0}
+.statrow .bar{height:10px;background:var(--ui2);border:2px solid var(--line)}
+.statrow .bar i{display:block;height:100%;background:var(--gold)}
+.statrow button{font-family:var(--pix);font-size:10px;background:var(--gold);color:#2b1d05;border:0;padding:4px 8px;min-height:28px}
+.q{border:2px solid var(--line);padding:8px 10px;margin:6px 0;background:var(--ui)}
+.q b{display:block;font-size:14px}.q.done{opacity:.5;text-decoration:line-through}
+.q small{color:var(--ink-2)}
+.pos{font-family:var(--pix);font-size:11px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;margin:6px 0}
+.toast{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 56px);transform:translateX(-50%);background:var(--ui);border:2px solid var(--gold);color:var(--ink);font-family:var(--pix);font-size:11px;padding:8px 12px;box-shadow:3px 3px 0 #000;opacity:0;transition:opacity .25s;pointer-events:none;z-index:8;max-width:86%;text-align:center}
+.toast.show{opacity:1}
+.mini{position:absolute;inset:0;background:rgba(10,12,18,.95);z-index:9;display:none;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(14px + env(safe-area-inset-bottom,0px));gap:10px;overflow:auto}
+.mini.open{display:flex}
+.mini canvas{width:100%;height:160px;border:2px solid var(--line);background:#0a0c12;image-rendering:auto}
+.mini .read{font-size:14px;border:2px solid var(--line);padding:8px 10px;background:var(--ui)}
+.mini .read b{color:var(--gold)}
+.mini .top{display:flex;justify-content:space-between;align-items:center}
+.mini .top b{font-family:var(--pix);font-size:12px;color:var(--gold)}
+.mini .close{font-family:var(--pix);font-size:11px;background:var(--ui2);color:var(--ink);border:2px solid var(--line);padding:6px 12px;min-height:36px}
+.tk{display:flex;gap:6px;flex-wrap:wrap}
+.tk button{font-family:var(--pix);font-size:11px;background:var(--ui2);color:var(--ink);border:2px solid var(--line);padding:8px 10px;min-height:40px}
+.tk button[aria-pressed=true]{border-color:var(--gold);color:var(--gold)}
+.row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border:2px solid var(--line);background:var(--ui);padding:8px 10px;margin:6px 0;font-size:14px}
+.row small{display:block;color:var(--ink-2);font-size:12px}
+.row .ok{color:var(--green);font-family:var(--pix);font-size:10px}.row .no{color:var(--red);font-family:var(--pix);font-size:10px}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+[hidden]{display:none!important}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:#0d0f16}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="game"></canvas>
+    <div class="hud">
+      <div class="box"><span id="hDay">Day 1 · Mon</span><small id="hRank">Unemployed</small></div>
+      <div class="right"><div class="box"><span class="en" id="hEnergy">●●●●●●●●</span><small>energy</small></div><div class="box"><span id="hCash">$1,500</span><small id="hBook">—</small></div><button id="menuBtn" aria-label="Menu">MENU</button></div>
+    </div>
+    <div class="toast" id="toast"></div>
+    <div class="sheet" id="sheet"><button class="close" id="sheetClose">CLOSE</button><div id="sheetBody"></div></div>
+    <div class="mini" id="mini"></div>
+  </div>
+  <div id="dlg"><div class="dl"><canvas class="portrait" id="portrait" width="28" height="28"></canvas><div style="min-width:0;flex:1"><p class="dname" id="dname"></p><p class="dtext" id="dtext"></p></div></div><div class="choices" id="choices"></div></div>
+</div>
+
+<script>
+(() => {
+const KEY='rota.v2', T=16;
+const $=id=>document.getElementById(id);
+const rnd=()=>Math.random(), gauss=()=>{ let u=0,v=0; while(!u)u=rnd(); while(!v)v=rnd(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), pick=a=>a[Math.floor(rnd()*a.length)];
+const money=v=>(v<0?'−':'')+'$'+Math.round(Math.abs(v)).toLocaleString('en-US');
+const moneyM=v=>{ const a=Math.abs(v); const s=a>=1e9?(a/1e9).toFixed(1)+'B':a>=1e6?(a/1e6).toFixed(1)+'M':Math.round(a/1e3)+'k'; return (v<0?'−':'')+'$'+s; };
+const pct=v=>(v>0?'+':v<0?'−':'')+Math.abs(v).toFixed(1)+'%';
+const DAYS=['Mon','Tue','Wed','Thu','Fri'];
+const hash=s=>{ let h=0; for (const ch of s) h=(h*31+ch.charCodeAt(0))>>>0; return h; };
+
+/* ---------- sprites (pixel art drawn from strings; no image assets) ---------- */
+const PAL={ '.':null, k:'#1c1a22', s:'#f0c9a6', S:'#c89a76', h:'#4a2f22', H:'#e7c36b', R:'#b43a3a', w:'#eeeeee', n:'#1f2d4a', N:'#4a6fb0', g:'#3f8a5a', G:'#6f6a8a', y:'#f5c542', b:'#2b2f3c', B:'#8a8f9c', o:'#d08a4a', p:'#8a5a8a', l:'#aab4c8', d:'#2a2d36' };
+function sprite(rows, map){ const h=rows.length, w=rows[0].length; const c=document.createElement('canvas'); c.width=w; c.height=h; const x=c.getContext('2d');
+  for (let j=0;j<h;j++) for (let i=0;i<w;i++){ const ch=rows[j][i]; const col=(map&&map[ch])||PAL[ch]; if (col){ x.fillStyle=col; x.fillRect(i,j,1,1); } } return c; }
+// character 12x16: hair h, skin s, shirt t, pants q, shoes k. frame: legs apart or together. dir: eyes offset.
+function charFrames(hair, shirt, pants, skin){
+  const map={h:hair, t:shirt, q:pants, e:'#1c1a22', s:skin||'#f0c9a6', k:'#1c1a22', w:'#eeeeee'};
+  const mk=(eyes, legs)=>[
+    "....hhhh....","...hhhhhh...","...hhhhhh...","...hsssssh..".replace('sssss', eyes),"...ssssss...","....ssss....","...tttttt...","..tttttttt..","..s.tttt.s..","..s.tttt.s..","....tttt....","....qqqq....","....qqqq....",
+    legs==='a'?"...qq..qq...":"....q..q....", legs==='a'?"...kk..kk...":"....k..k....","............"];
+  const F={}; const E={down:'sesse', left:'esss.', right:'.ssse', up:'sssss'};
+  for (const d in E){ F[d]=[sprite(mk(E[d],'a'),map), sprite(mk(E[d],'t'),map)]; }
+  F.portrait = sprite([
+    "......hhhhhhhhhhhhhhhh......","....hhhhhhhhhhhhhhhhhhhh....","...hhhhhhhhhhhhhhhhhhhhhh...","...hhhhhhhhhhhhhhhhhhhhhh...","...hhhhhhsssssssssshhhhhh...","...hhhhsssssssssssssshhhh...","...hhhsssssssssssssssshhh...","...hhhsssssssssssssssshhh...","...hhsssssssssssssssssshh...","...hhsssswwessssswwesssshh..","...hhssssweessssswesssssh...","....ssssssssssssssssssss....","....ssssssssssssssssssss....","....sssssssssssssssssss.....","....ssssssssskkksssssss.....",".....ssssssssssssssssss.....","......ssssssssssssssss......",".......sssssssssssss........","........tttttttttttt........",".......tttttttttttttt.......","......tttttttttttttttt......",".....tttttttttttttttttt.....","....tttttttttttttttttttt....","...tttttttttttttttttttttt...","...tttttttttttttttttttttt...","..tttttttttttttttttttttttt..","..tttttttttttttttttttttttt..","..tttttttttttttttttttttttt.."].map(r=>r.padEnd(28,'.').slice(0,28)), map);
+  return F;
+}
+const HAIRS=['#1c1a22','#4a2f22','#e7c36b','#b9b1a3','#d08a4a','#2b1d12','#6b3a2a','#8a8f9c'];
+const SKINS=['#f0c9a6','#c89a76','#8d5a3b','#f5d6b8','#a86f4a'];
+const fill16=(a,b,fn)=>Array.from({length:16},(_,j)=>Array.from({length:16},(_,i)=>fn(i,j)?b:a).join(''));
+const TILES={};
+function makeTiles(){
+  const floor=fill16('d','a',(i,j)=>(i*7+j*13)%37===0);
+  TILES['.']=sprite(floor,{d:'#2b2f3c', a:'#343848'});
+  TILES['#']=sprite(Array(16).fill("bbbbbbbbbbbbbbbb").map((r,i)=>i<3?"BBBBBBBBBBBBBBBB":r), {b:'#1a1d27', B:'#30354a'});
+  const win=[]; for (let j=0;j<16;j++){ let r=''; for (let i=0;i<16;i++){ r += (j<2||j>13||i===0||i===15)?'f':((i*7+j*3)%11===0&&j>4?'y':(j>9?'c':'n')); } win.push(r); }
+  TILES['W']=sprite(win,{f:'#30354a', n:'#101a33', c:'#1a2446', y:'#f5c542'});
+  TILES['G']=sprite(Array(16).fill("gggggggggggggggg").map((r,i)=>i%6===0?"GGGGGGGGGGGGGGGG":r), {g:'#2c3f5a', G:'#4b6b93'});
+  const desk=["dddddddddddddddd","dddddddddddddddd","dd..mmmm..mmmm.d","dd..mkkm..mkkm.d","dd..mkkm..mkkm.d","dd..mmmm..mmmm.d","dd....w....w...d","doooooooooooooood","doooooooooooooood","doooooooooooooood","dd.o..........od","dd.o..........od","dd..............","dd..............","dddddddddddddddd","dddddddddddddddd"];
+  TILES['D']=sprite(desk,{d:'#2b2f3c', '.':'#2b2f3c', m:'#111', k:'#3ddc84', w:'#555', o:'#8a6a4a'});
+  TILES['d']=sprite(desk,{d:'#2b2f3c', '.':'#2b2f3c', m:'#111', k:'#f5c542', w:'#555', o:'#a37a52'});
+  TILES['P']=sprite(desk,{d:'#2b2f3c', '.':'#2b2f3c', m:'#111', k:'#4ea1ff', w:'#555', o:'#5a3d2a'});
+  TILES['K']=sprite(Array(16).fill("kkkkkkkkkkkkkkkk").map((r,i)=>i<5?"llllllllllllllll":i<7?"kkkkkkkkkkkkkkkk":r),{k:'#4a4f5c', l:'#aab4c8'});
+  TILES['C']=sprite(["kkkkkkkkkkkkkkkk","kkkkkkkkkkkkkkkk","kkkrrrrrrrrrrkkk","kkkrrrrrrrrrrkkk","kkkrryyrrrrrrkkk","kkkrrrrrrrrrrkkk","kkkrrrrrrrrrrkkk","kkkrrrr..rrrrkkk","kkkrrrr..rrrrkkk","kkkrrrrwwrrrrkkk","kkkrrrrwwrrrrkkk","kkkrrrrrrrrrrkkk","kkkrrrrrrrrrrkkk","kkkkkkkkkkkkkkkk","kkkkkkkkkkkkkkkk","kkkkkkkkkkkkkkkk"],{k:'#4a4f5c', r:'#8a2b2b', y:'#f5c542', w:'#eee', '.':'#2b2f3c'});
+  TILES['T']=sprite(["dddddddddddddddd","dddddddddddddddd","dmmmmmmmmmmmmmmd","dmoooooooooooomd","dmoyyyooooyyoomd","dmooooyyyooooomd","dmoyyooooooyyomd","dmooooooyyyooomd","dmmmmmmmmmmmmmmd","dddddwwwwwwddddd","dddddddwwddddddd","dddddddwwddddddd","dddddwwwwwwddddd","dddddddddddddddd","dddddddddddddddd","dddddddddddddddd"],{d:'#2b2f3c', m:'#111', o:'#101a1a', y:'#f5a623', w:'#555'});
+  TILES['E']=sprite(Array(16).fill("eeeeeeeeeeeeeeee").map((r,i)=>i<2?"BBBBBBBBBBBBBBBB":"eeeeeeeeeeeeeeee").map(r=>r.slice(0,7)+'|'+r.slice(8)),{e:'#6a7290', B:'#f5c542', '|':'#2b2f3c'});
+  TILES['b']=sprite(["dddddddddddddddd","oooooooooooooooo","oRRoNNoHHooRRooo","oRRoNNoHHooRRooo","oRRoNNoHHooRRooo","oooooooooooooooo","oNNoRRooHHoNNooo","oNNoRRooHHoNNooo","oNNoRRooHHoNNooo","oooooooooooooooo","oHHooNNoRRoHHooo","oHHooNNoRRoHHooo","oHHooNNoRRoHHooo","oooooooooooooooo","dddddddddddddddd","dddddddddddddddd"],{d:'#2b2f3c', o:'#5a3d2a', R:'#b43a3a', N:'#4a6fb0', H:'#e7c36b'});
+  TILES['p']=sprite(["dddddddddddddddd","dddddddddddddddd","ddddddggggdddddd","dddddgggggggdddd","ddddgggggggggddd","ddddggggggggggdd","dddddgggggggdddd","ddddddggggdddddd","dddddddggddddddd","dddddddggddddddd","ddddddoooodddddd","ddddddoooodddddd","dddddddooddddddd","dddddddooddddddd","dddddddddddddddd","dddddddddddddddd"],{d:'#2b2f3c', g:'#3f8a5a', o:'#8a5a3a'});
+  // home
+  TILES['r']=sprite(fill16('a','b',(i,j)=>(i+j)%4===0),{a:'#5a3a3a', b:'#6b4444'});
+  TILES['z']=sprite(["dddddddddddddddd","dwwwwwwwwwwwwwwd","dwwwwwwwwwwwwwwd","dwwllllllllllwwd","dwwllllllllllwwd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dnnnnnnnnnnnnnnd","dddddddddddddddd","doodddddddddoodd","doodddddddddoodd"],{d:'#2b2f3c', w:'#e8e2d0', l:'#c9c2ae', n:'#3b4a7a', o:'#5a3d2a'});
+  TILES['l']=sprite(["dddddddddddddddd","dddddddddddddddd","dddddmmmmmmddddd","dddddmkkkkmddddd","dddddmkkkkmddddd","dddddmmmmmmddddd","dooooooooooooood","dooooooooooooood","dooooooooooooood","dooooooooooooood","dooddddddddddood","dooddddddddddood","dooddddddddddood","dddddddddddddddd","dddddddddddddddd","dddddddddddddddd"],{d:'#2b2f3c', m:'#111', k:'#4ea1ff', o:'#8a6a4a'});
+  TILES['F']=sprite(["dddddddddddddddd","dllllllllllllldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlllllllllllllld","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dlwwwwwwwwwwwldd","dllllllllllllldd","dddddddddddddddd","dddddddddddddddd"],{d:'#2b2f3c', l:'#8a8f9c', w:'#d8dce6'});
+  // outdoors
+  TILES['g']=sprite(fill16('g','G',(i,j)=>(i*5+j*11)%23===0),{g:'#2f5a3a', G:'#3a6a44'});
+  TILES['t']=sprite(["gggggggggggggggg","ggggggGGGGgggggg","gggggGGGGGGggggg","ggggGGGGGGGGgggg","gggGGGGGGGGGGggg","gggGGGGGGGGGGggg","gggGGGGGGGGGGggg","ggggGGGGGGGGgggg","gggggGGGGGGggggg","ggggggGGGGgggggg","gggggggoogggggg","gggggggoogggggg","gggggggoogggggg","gggggggoogggggg","gggggggggggggggg","gggggggggggggggg"].map(r=>r.padEnd(16,'g')),{g:'#2f5a3a', G:'#1f6b3a', o:'#5a3d2a'});
+  TILES['S']=sprite(fill16('s','S',(i,j)=>i===15||j===15),{s:'#5a5f6e', S:'#4a4f5c'});
+  TILES['R']=sprite(fill16('r','r',()=>false),{r:'#23252e'});
+  TILES['M']=sprite(fill16('r','y',(i,j)=>j===0&&i>=2&&i<=9),{r:'#23252e', y:'#9a8a3a'});
+  TILES['~']=sprite(fill16('w','W',(i,j)=>(i*3+j*7)%19===0),{w:'#15304a', W:'#1f4668'});
+  TILES['q']=sprite(fill16('s','S',(i,j)=>j>=13),{s:'#4a4f5c', S:'#15304a'});
+  TILES['B']=sprite(fill16('b','b',()=>false),{b:'#14161f'});
+  TILES['O']=TILES['B'];
+  TILES['-']=sprite(fill16('g','r',(i,j)=>j===5||j===10||(i%4===0)),{g:'#3a3a32', r:'#6a6a60'});
+  TILES['=']=sprite(fill16('s','y',(i,j)=>j===0),{s:'#6a6f7e', y:'#c9b84a'});
+  TILES['f']=sprite(fill16('g','f',(i,j)=>(i*7+j*5)%17===0),{g:'#2f5a3a', f:'#e07a9a'});
+}
+makeTiles();
+
+/* ---------- market ---------- */
+const TICK=[ {t:'NVX', n:'Novexa Semi', vol:0.028}, {t:'HLX', n:'Helix Bio', vol:0.04}, {t:'MRD', n:'Meridian Bank', vol:0.018}, {t:'ORB', n:'Orbital Freight', vol:0.022}, {t:'KSN', n:'Kestrel Soft', vol:0.025}, {t:'TRD', n:'Trident Energy', vol:0.03}, {t:'AUR', n:'Aurora Retail', vol:0.024}, {t:'ZNT', n:'Zenith Pharma', vol:0.035} ];
+const tk=t=>TICK.find(k=>k.t===t);
+
+/* ---------- firms. All fictional; any resemblance to real institutions is parody. ----------
+   salary: per working day. book: starting capital at rank 0. maxBook: hard ceiling. fireLoss: quarterly loss (share of book) that gets you fired.
+   bonus: your share of quarterly profit. promo: multiplier on reputation needed per promotion (big = slow). diff: interview difficulty. likes: stats the firm values. */
+const RANKS=[{t:'Analyst',mult:1,rep:0},{t:'Senior Analyst',mult:2.5,rep:30},{t:'Portfolio Manager',mult:6,rep:70},{t:'TOP',mult:15,rep:120}];
+const FIRMS=[
+ {id:'brickhouse', name:'Brickhouse Trading', short:'BRICKHOUSE', type:'prop', color:'#8a2b2b', salary:120, book:3e5, maxBook:3e6, fireLoss:0.25, bonus:0.25, promo:0.6, diff:1, likes:['nerve'], req:{}, top:'Co-owner',
+  desc:'A proprietary trading shop above a kebab house. No requirements, no salary to speak of, and a quarter of whatever you make. This is where you start when nobody else will have you.',
+  staff:{boss:{name:'Tony Marchetti',title:'Owner'}, mentor:{name:'Benny Reyes',title:'Head Trader'}, rival:{name:'Kyle Dunn',title:'Trader'}, extra:{name:'Jonah',title:'Runner',kind:'intern'}},
+  lines:{boss:['Size matters. Conviction matters more. Being right matters most, and that one I can\'t teach you.','The kebab place downstairs pays more rent than you make. Think about that.'], mentor:['Scalp, don\'t marry. A position is a date, not a wedding.'], rival:['I was up four grand by ten. You?'], extra:['Tony keeps a baseball bat under the desk. Decorative, he says.']}},
+ {id:'barkleys', name:'Barkleys Bank', short:'BARKLEYS', type:'bank', color:'#1f4e9a', salary:520, book:1e6, maxBook:25e6, fireLoss:0.08, bonus:0.05, promo:1.3, diff:2, likes:['charm'], req:{charm:2}, top:'Managing Director',
+  desc:'The high-street bank with the blue eagle. Steady salary, good canteen, promotion roughly once a decade. The research floor mostly writes notes that nobody reads.',
+  staff:{boss:{name:'Margaret Thornton',title:'Head of Research'}, mentor:{name:'Alan Pike',title:'Senior Analyst'}, rival:{name:'Chloe Barnes',title:'Analyst'}, extra:{name:'Henry Ludlow',title:'Compliance',kind:'compliance'}},
+  lines:{boss:['Our clients want to sleep at night. So do I. Don\'t be clever.','The regulator visits on Thursday. Tidy your desk.'], mentor:['In a bank, the best idea is the one your boss had first.'], rival:['I\'ve been here eleven years. You\'ll learn how it works.'], extra:['Everything in writing. Especially the things you\'d rather not write down.']}},
+ {id:'german', name:'German Bank', short:'GERMAN BANK', type:'bank', color:'#0a3b7a', salary:700, book:3e6, maxBook:100e6, fireLoss:0.10, bonus:0.08, promo:1.3, diff:3, likes:['analysis'], req:{cert:1, analysis:3}, top:'Managing Director',
+  desc:'Frankfurt\'s heaviest investment bank. Has paid a fine or two. The pay is fine, the culture is hard, and everyone is talking about "restructuring".',
+  staff:{boss:{name:'Dr. Klaus Reinhardt',title:'Head of Equities'}, mentor:{name:'Anja Weber',title:'Director'}, rival:{name:'Felix Braun',title:'Associate'}, extra:{name:'Sabine Koch',title:'Compliance',kind:'compliance'}},
+  lines:{boss:['We are restructuring. Again. Make yourself hard to restructure.','Precision. If your model is off by one basis point, I will find it.'], mentor:['The last three heads of equities lasted eighteen months each. Plan accordingly.'], rival:['My father knows the board. Yours?'], extra:['The regulator has a desk here now. Literally. Third floor.']}},
+ {id:'hbbb', name:'HBBB Bank', short:'HBBB', type:'bank', color:'#c0392b', salary:650, book:2e6, maxBook:120e6, fireLoss:0.08, bonus:0.06, promo:1.3, diff:3, likes:['charm'], req:{cert:1, charm:3}, top:'Managing Director',
+  desc:'Hong Kong & British Banking & Bullion. "The world\'s local bank", says the poster. Offices in sixty countries, and a promotion may mean Singapore.',
+  staff:{boss:{name:'Victoria Chen-Whitmore',title:'Regional Head'}, mentor:{name:'Priya Nair',title:'Senior Analyst'}, rival:{name:'Oliver Hughes',title:'Analyst'}, extra:{name:'Wei Lin',title:'Graduate',kind:'intern'}},
+  lines:{boss:['I have a call with Hong Kong in four minutes. Impress me in three.','Relationships, relationships, relationships. Then numbers.'], mentor:['A bank this size moves slowly. Use the time to learn.'], rival:['I\'m on the Singapore shortlist. Just saying.'], extra:['Did you know we have a bank branch in a town with no roads? True story.']}},
+ {id:'silverman', name:'Silverman Sachs', short:'SILVERMAN', type:'bank', color:'#1b1f3a', salary:900, book:5e6, maxBook:300e6, fireLoss:0.10, bonus:0.10, promo:1.3, diff:4, likes:['analysis','nerve'], req:{cert:2, rep:40, analysis:4}, top:'Partner',
+  desc:'The octopus of Wall Street. Everyone wants in; most are cut in the first round. The starting pay looks low per hour worked, but the partners own half the city.',
+  staff:{boss:{name:'Jonathan Blankfeld',title:'Partner'}, mentor:{name:'Rachel Stein',title:'Vice President'}, rival:{name:'Chad Worthington III',title:'Analyst'}, extra:{name:'Dmitri Volkov',title:'Strat',kind:'quant'}},
+  lines:{boss:['Long-term greedy. Say it with me.','Partners are made in the quarters nobody remembers. Be remembered anyway.'], mentor:['Sleep is a position you can close.'], rival:['My summer internship was here. My father\'s too.'], extra:['I built a model that predicts which analysts quit. You\'re borderline.']}},
+ {id:'blackboulder', name:'BlackBoulder', short:'BLACKBOULDER', type:'asset', color:'#2c2c2c', salary:750, book:20e6, maxBook:1e9, fireLoss:0.06, bonus:0.03, promo:1.2, diff:3, likes:['analysis'], req:{cert:1, rep:25}, top:'Managing Director',
+  desc:'The largest asset manager on the planet. Ten trillion under management and a slice of everything. The risk system, "Aladin", sees all.',
+  staff:{boss:{name:'Lawrence Flink',title:'Managing Director'}, mentor:{name:'Susan Park',title:'Director'}, rival:{name:'Marcus Reed',title:'Associate'}, extra:{name:'Ingrid Weiss',title:'Risk',kind:'compliance'}},
+  lines:{boss:['We own four percent of every company you can name. Act like it.','My letter to CEOs goes out Monday. Give me one sentence.'], mentor:['Scale is the strategy. Everything else is detail.'], rival:['Aladin flagged your position. Just thought you should know.'], extra:['Aladin doesn\'t sleep. Neither do I, apparently.']}},
+ {id:'rearguard', name:'Rearguard Investments', short:'REARGUARD', type:'asset', color:'#8b1a1a', salary:540, book:10e6, maxBook:500e6, fireLoss:0.04, bonus:0.01, promo:1.2, diff:2, likes:['charm'], req:{charm:2}, rules:{noShort:true, maxSize:0.2}, top:'Principal',
+  desc:'Passive investing, low fees, owned by its customers. Nobody gets fired, nobody gets rich. The coffee is free and terrible. No shorting, max 20% positions.',
+  staff:{boss:{name:'John Bogleman',title:'Principal'}, mentor:{name:'Linda Hart',title:'Senior Analyst'}, rival:{name:'Tim Ellis',title:'Analyst'}, extra:{name:'Sam',title:'Intern',kind:'intern'}},
+  lines:{boss:['Costs matter. Yours included.','Why trade at all? The index has beaten ninety percent of you for fifty years.'], mentor:['Nobody here has been fired since 1994. He deserved it.'], rival:['I\'ve been an analyst for nine years. It\'s fine. It\'s fine.'], extra:['Is it true the founder still flies economy?']}},
+ {id:'northsea', name:'North Sea Sovereign Fund', short:'NORTH SEA', type:'sovereign', color:'#2e6b8a', salary:700, book:50e6, maxBook:2e9, fireLoss:0.05, bonus:0, promo:1.2, diff:3, likes:['analysis','charm'], req:{cert:2, rep:50}, rules:{noShort:true, exclude:['TRD']}, top:'Chief Investment Officer',
+  desc:'A small nation\'s oil money. One and a half trillion dollars, 1.5% of every listed company on Earth, and an ethics council that excludes oil, weapons and tobacco. Paid for by oil. No bonus. View of the harbour.',
+  staff:{boss:{name:'Nicholas Tanner',title:'Chief Executive'}, mentor:{name:'Isabel Moreau',title:'Senior Portfolio Manager'}, rival:{name:'Lucas Ferreira',title:'Portfolio Manager'}, extra:{name:'Clara Whitfield',title:'Ethics Council',kind:'compliance'}},
+  lines:{boss:['We are not here to beat the market. We are here to be the market, politely.','The parliament reads our annual report. All of them. Write accordingly.'], mentor:['When you own everything, the only risk is doing something stupid.'], rival:['I was at a bank before this. I miss the bonus. I don\'t miss the people.'], extra:['Trident Energy is on the exclusion list. Don\'t make me come over there.']}},
+ {id:'riverbridge', name:'Riverbridge Associates', short:'RIVERBRIDGE', type:'hedge', color:'#3a5f3a', salary:1000, book:10e6, maxBook:150e6, fireLoss:0.15, bonus:0.15, promo:0.9, diff:4, likes:['nerve'], req:{rep:35, nerve:4}, top:'Partner',
+  desc:'The world\'s largest hedge fund. "Radical transparency": every meeting is recorded and everyone rates everyone in an app. The founder wrote a book of principles. You will be asked to read it.',
+  staff:{boss:{name:'Ray Dalton',title:'Founder'}, mentor:{name:'Karen Karp',title:'Senior Investor'}, rival:{name:'Greg Pryce',title:'Investor'}, extra:{name:'Noah Feld',title:'Research Engineer',kind:'quant'}},
+  lines:{boss:['Pain plus reflection equals progress. You look like you\'re about to progress.','I gave your last meeting a 3 out of 10 in the app. Believable, but not thoughtful.'], mentor:['Everyone cries here in the first month. It\'s in the handbook.'], rival:['I rated you a 2. Nothing personal. Radical transparency.'], extra:['The machine stores every conversation. Including this one.']}},
+ {id:'reformation', name:'Reformation Technologies', short:'REFORMATION', type:'quant', color:'#4a3a7a', salary:1200, book:20e6, maxBook:200e6, fireLoss:0.12, bonus:0.20, promo:0.9, diff:5, likes:['analysis'], req:{analysis:6}, top:'Partner',
+  desc:'The most secretive quant fund in the world. Hires physicists and mathematicians, never finance people. The Medallion-ish fund has returned sixty percent a year for three decades and nobody outside the building knows how.',
+  staff:{boss:{name:'James Simmons',title:'Founder'}, mentor:{name:'Dr. Elena Markov',title:'Researcher'}, rival:{name:'Dr. Yuki Tanaka',title:'Researcher'}, extra:{name:'Dr. Peter Brownstein',title:'Researcher',kind:'quant'}},
+  lines:{boss:['Don\'t tell me the story. Tell me the t-statistic.','We don\'t hire finance people. You are the exception. Don\'t make me regret it.'], mentor:['Half the signals here are noise we haven\'t identified yet. The other half are noise we have.'], rival:['My PhD was on turbulence. Markets are easier.'], extra:['I\'m not allowed to tell you what I do. I\'m not sure I\'m allowed to tell you that.']}},
+ {id:'bastion', name:'Bastion Capital', short:'BASTION', type:'hedge', color:'#1a5276', salary:1100, book:8e6, maxBook:120e6, fireLoss:0.07, bonus:0.18, promo:0.9, diff:4, likes:['nerve','analysis'], req:{rep:30, nerve:3}, halveAt:0.04, top:'Partner',
+  desc:'A multi-strategy "pod shop" from Chicago. Every PM has their own book and a tight stop-loss. Lose 4% and your book is halved. Lose 7% and security walks you out.',
+  staff:{boss:{name:'Ken Griffith',title:'Founder'}, mentor:{name:'Amanda Cole',title:'Portfolio Manager'}, rival:{name:'Tyler Brooks',title:'Portfolio Manager'}, extra:{name:'Paul Osei',title:'Risk',kind:'compliance'}},
+  lines:{boss:['Drawdown is a decision. Make a different one.','We have the best people in the world. Half of them will be gone by Christmas.'], mentor:['Your stop-loss is not a suggestion. It\'s a prophecy.'], rival:['Three pods got shut last week. Yours looks a bit... exposed.'], extra:['Four percent and I halve you. Seven and we\'re done. I don\'t enjoy it. Mostly.']}},
+ {id:'hampshire', name:'Hampshire Hathaway', short:'HAMPSHIRE', type:'value', color:'#6b4a2a', salary:600, book:5e6, maxBook:400e6, fireLoss:0.30, bonus:0.05, promo:1.0, diff:3, likes:['analysis','charm'], req:{analysis:4, charm:3}, rules:{noShort:true}, top:'Vice Chairman',
+  desc:'The Oracle of... well, of a small town in the Midwest. A conglomerate of insurance, candy and railways. Hires one analyst at a time, holds stocks "forever" and still uses a fax machine.',
+  staff:{boss:{name:'Warren Buffington',title:'Chairman'}, mentor:{name:'Charlie Mungerson',title:'Vice Chairman'}, rival:{name:'Todd Wexler',title:'Investment Manager'}, extra:{name:'Debbie Bosworth',title:'Secretary',kind:'intern'}},
+  lines:{boss:['Our favourite holding period is forever. Our favourite lunch is a cheeseburger.','Rule one: don\'t lose money. Rule two: see rule one.'], mentor:['I have nothing to add.','Invert, always invert.'], rival:['Warren gave me ten billion to run. He gave you a desk. We all start somewhere.'], extra:['The Chairman drinks five cans of cola a day. I\'ve counted.']}},
+ {id:'halloran', name:'Halloran Capital', short:'HALLORAN', type:'hedge', color:'#1f2d4a', salary:800, book:2e6, maxBook:150e6, fireLoss:0.12, bonus:0.12, promo:0.9, diff:3, likes:['nerve'], req:{rep:15}, top:'Partner',
+  desc:'A boutique hedge fund on the fourth floor. The founder gives juniors two million to play with and fires them if they lose it. Small, sharp, and everybody knows everybody\'s P&L.',
+  staff:{boss:{name:'Declan Halloran',title:'Founder & PM'}, mentor:{name:'Sienna Cross',title:'Senior Analyst'}, rival:{name:'Sebastian Wolfe',title:'Analyst'}, extra:{name:'Ravi Anand',title:'Quant',kind:'quant'}},
+  lines:{boss:['The market is not your friend. It is not your enemy either. It simply does not care.','Sebastian showed me an idea this morning. What have you got?'], mentor:['Close the positions you no longer believe in. Hope is not a strategy.','Ravi is odd, but his models work.'], rival:['Enjoy it. It won\'t last.','Halloran asked about you this morning. I said you were trying.'], extra:['The model runs. Please don\'t tell Sebastian.']}},
+];
+const firmById=id=>FIRMS.find(f=>f.id===id);
+
+/* interview questions by firm type. Each answer is tagged with the stat it leans on; the firm's "likes" decides how much that stat counts. */
+const INTERVIEWS={
+ prop:[ {q:'How much money have you lost in a day?', a:[{l:'Nothing yet. I\'m careful.',s:'analysis'},{l:'Enough to learn. Not enough to quit.',s:'nerve'},{l:'Depends who\'s asking.',s:'charm'}]},
+        {q:'The market gaps against you at the open. What do you do?', a:[{l:'Cut it. Rules are rules.',s:'nerve'},{l:'Check why before I touch it.',s:'analysis'},{l:'Call someone who knows.',s:'charm'}]},
+        {q:'Why here?', a:[{l:'Because nobody else would take me. Yet.',s:'nerve'},{l:'Because I want to learn flow.',s:'analysis'},{l:'Because Tony seemed like a guy who rewards loyalty.',s:'charm'}]} ],
+ bank:[ {q:'Why banking?', a:[{l:'I like building relationships that last decades.',s:'charm'},{l:'Because the research platform here is unmatched.',s:'analysis'},{l:'Because I want to run this place one day.',s:'nerve'}]},
+        {q:'Walk me through a DCF.', a:[{l:'Project free cash flow, discount at WACC, add terminal value, subtract net debt.',s:'analysis'},{l:'Honestly? I\'d ask a colleague and learn it properly.',s:'charm'},{l:'I\'d rather talk about what the model misses.',s:'nerve'}]},
+        {q:'A client wants a product that isn\'t right for them. What do you do?', a:[{l:'Explain why, and offer the one that is.',s:'charm'},{l:'Show them the numbers. The numbers decide.',s:'analysis'},{l:'Say no. Clearly. Once.',s:'nerve'}]} ],
+ asset:[ {q:'What is risk?', a:[{l:'Volatility relative to the benchmark.',s:'analysis'},{l:'Permanent loss of client capital.',s:'charm'},{l:'Not knowing what you own.',s:'nerve'}]},
+        {q:'We manage money for teachers and nurses. Why should they trust you?', a:[{l:'Because I\'ll explain every decision in plain language.',s:'charm'},{l:'Because my process is documented and repeatable.',s:'analysis'},{l:'Because I\'ll tell them when I\'m wrong.',s:'nerve'}]},
+        {q:'Active or passive?', a:[{l:'Mostly passive, with active where the evidence supports it.',s:'analysis'},{l:'Whatever the client understands and sticks with.',s:'charm'},{l:'Active. Otherwise why am I here?',s:'nerve'}]} ],
+ sovereign:[ {q:'A profitable company is on the exclusion list. The position would make money. Your move?', a:[{l:'The list is the mandate. We don\'t buy it.',s:'analysis'},{l:'Raise it with the council and let them decide.',s:'charm'},{l:'Buy it. Mandates are written by people, too.',s:'nerve'}]},
+        {q:'Parliament asks why we lost money last year. One sentence.', a:[{l:'Because markets fell, and we own the market.',s:'analysis'},{l:'Because we are built for decades, not years, and the decade is fine.',s:'charm'},{l:'Because I wasn\'t here yet.',s:'nerve'}]},
+        {q:'Why would you leave a bonus culture for a salary?', a:[{l:'Because I want to think in decades.',s:'analysis'},{l:'Because I\'d rather be trusted than rich.',s:'charm'},{l:'The view. Honestly, the view.',s:'nerve'}]} ],
+ hedge:[ {q:'Pitch me a short. Thirty seconds.', a:[{l:'Aurora Retail: inventory up 30%, sales up 4%, management selling.',s:'analysis'},{l:'The company whose CEO just hired a crisis PR firm.',s:'charm'},{l:'Whatever everyone in this room is long.',s:'nerve'}]},
+        {q:'You\'re down 8% in a month. Your boss asks what\'s wrong.', a:[{l:'"Nothing is wrong with the thesis. The timing is."',s:'nerve'},{l:'"Here are the three things I got wrong and what I changed."',s:'analysis'},{l:'"Let me walk you through it over lunch."',s:'charm'}]},
+        {q:'What do you think of our founder\'s book?', a:[{l:'"Useful. I disagree with chapter four."',s:'nerve'},{l:'"I annotated it. Want to see?"',s:'analysis'},{l:'"I gave a copy to my mother."',s:'charm'}]} ],
+ quant:[ {q:'You flip a fair coin 10 times and get 10 heads. Probability the next is heads?', a:[{l:'Fifty percent. The coin has no memory.',s:'analysis'},{l:'Higher than fifty. I\'d update my prior that it\'s fair.',s:'nerve'},{l:'Depends who flipped it.',s:'charm'}]},
+        {q:'A signal has a Sharpe of 3 in backtest. What is your first question?', a:[{l:'How many parameters, and how much data?',s:'analysis'},{l:'Who else has found it?',s:'charm'},{l:'How big can I size it?',s:'nerve'}]},
+        {q:'Why should we hire someone who studied finance?', a:[{l:'Because I know which textbook models are wrong, and why.',s:'analysis'},{l:'Because someone here has to talk to the investors.',s:'charm'},{l:'Because your returns prove finance people were wrong, and I want to see how.',s:'nerve'}]} ],
+ value:[ {q:'Pitch me a stock you\'d hold for twenty years.', a:[{l:'Meridian Bank. Boring, overcapitalised, buys back shares every quarter.',s:'analysis'},{l:'Whatever company you\'d be proud to own all of.',s:'charm'},{l:'Nothing. Twenty years is a long time to be wrong.',s:'nerve'}]},
+        {q:'What\'s the most important word in investing?', a:[{l:'Moat.',s:'analysis'},{l:'Patience.',s:'charm'},{l:'No.',s:'nerve'}]},
+        {q:'We don\'t use spreadsheets much. Does that bother you?', a:[{l:'If the idea needs a spreadsheet, it isn\'t a good idea.',s:'charm'},{l:'A little. I\'ll bring a pencil.',s:'analysis'},{l:'Yes. I\'ll change your mind.',s:'nerve'}]} ],
+};
+
+/* ---------- maps ---------- */
+const OFFICE_MAP=[
+"########################",
+"#WWWWWWWWWWWWWWWWWWWWWW#",
+"#......GGGGGG#.........#",
+"#..p...G....G#..K.KKC..#",
+"#......G.P..G#.........#",
+"#......G....G#.........#",
+"#......GGG.GG#....p....#",
+"#......................#",
+"#.D..D..D..D..D..d.....#",
+"#......................#",
+"#.D..D..D..D..D..D.....#",
+"#......................#",
+"#..p.......T.....b.b...#",
+"#.......#.#.......bbb..#",
+"#.......#E#..p.........#",
+"########################"];
+const HOME_MAP=[
+"##########",
+"#W..W..W.#",
+"#zr......#",
+"#zr.l....#",
+"#........#",
+"#F.......#",
+"#........#",
+"####E#####"];
+// Buildings are rectangles drawn over the base grid; the door is the bottom-centre tile. Stepping on a door triggers it.
+function mkCity(){
+  const W=44, H=29; const g=Array.from({length:H},()=>Array(W).fill('g'));
+  const fillRow=(y,c)=>{ for (let x=0;x<W;x++) g[y][x]=c; };
+  [1,2,3,4,5,8,9,10,11,12,13,16,17,18,19,20,21,24].forEach(y=>fillRow(y,'S'));
+  [6,14,22].forEach(y=>fillRow(y,'R')); [7,15,23].forEach(y=>fillRow(y,'M'));
+  for (let x=0;x<W;x++){ if (x%3===1) g[0][x]='t'; if (x%4===2) g[25][x]='t'; else if (x%4===0) g[25][x]='f'; g[26][x]='q'; g[27][x]='~'; g[28][x]='~'; }
+  const slots=[['station','cafe','barkleys','brickhouse','afa','hampshire'],['german','hbbb','silverman','blackboulder','rearguard','northsea'],['halloran','riverbridge','reformation','bastion','park','park']];
+  const B=[];
+  slots.forEach((row,r)=>row.forEach((id,k)=>{ const x=1+k*7, y=1+r*8;
+    if (id==='park'){ for (let j=0;j<4;j++) for (let i=0;i<6;i++) g[y+j][x+i]=(i+j)%3===0?'t':(i*j)%5===1?'f':'g'; return; }
+    const f=firmById(id); const b={id, x, y, w:6, h:4, kind:f?'firm':id, label:f?f.short:{station:'STATION',cafe:'CAFE',afa:'AFA INSTITUTE'}[id], color:f?f.color:{station:'#3a4a3a',cafe:'#6b3a2a',afa:'#5a4a7a'}[id]};
+    for (let j=0;j<4;j++) for (let i=0;i<6;i++) g[y+j][x+i]='B'; b.dx=x+3; b.dy=y+3; g[b.dy][b.dx]='O'; B.push(b); }));
+  return {rows:g.map(r=>r.join('')), buildings:B};
+}
+function mkVillage(){
+  const W=26, H=16; const g=Array.from({length:H},()=>Array(W).fill('g'));
+  for (let x=0;x<W;x++){ if (x%3===0) g[0][x]='t'; g[1][x]='-'; g[2][x]='='; g[3][x]='S'; g[8][x]='S'; g[9][x]='R'; g[10][x]='M'; g[11][x]='S'; if (x%5===2&&x>10) g[13][x]='t'; if (x%4===1) g[14][x]='f'; if (x%6===3) g[15][x]='t'; }
+  for (let y=12;y<=13;y++) for (let x=3;x<=7;x++) g[y][x]='~';
+  for (let y=4;y<=7;y++) for (let x=0;x<W;x++) g[y][x]=(x*y)%7===0?'f':'g';
+  const B=[ {id:'home',x:2,y:4,w:6,h:4,kind:'home',label:'HOME',color:'#5a4a3a'}, {id:'pub',x:10,y:4,w:6,h:4,kind:'pub',label:'THE CROWN',color:'#4a2a2a'}, {id:'lib',x:18,y:4,w:6,h:4,kind:'lib',label:'LIBRARY',color:'#3a4a5a'} ];
+  for (const b of B){ for (let j=0;j<b.h;j++) for (let i=0;i<b.w;i++) g[b.y+j][b.x+i]='B'; b.dx=b.x+3; b.dy=b.y+b.h-1; g[b.dy][b.dx]='O'; }
+  return {rows:g.map(r=>r.join('')), buildings:B, platform:{x0:9,x1:16,y:2}};
+}
+const CITY=mkCity(), VILLAGE=mkVillage();
+const SOLID='#WGDdPKCTEbpzlFB~-t', INTERACT='dCTEbPzlF';
+
+/* ---------- state ---------- */
+const HOMES=[{t:'Bedsit above the chip shop', rent:350, deposit:0, energy:8, desc:'One room, one window, one radiator that clanks. Smells of vinegar from downstairs.'},
+             {t:'One-bed flat by the green', rent:900, deposit:3000, energy:9, desc:'Two rooms, a working boiler and a view of the duck pond. +1 energy per day.'},
+             {t:'The old mill house', rent:2500, deposit:15000, energy:10, desc:'Oak beams, a study, a garden down to the river. The village talks about you now. +2 energy per day.'}];
+const FARE=6, PASS_COST=150, PASS_DAYS=30;
+let S;
+function fresh(){ const s={ day:1, energy:8, cash:1500, rep:5, xp:0, lvl:1, pts:0, stats:{analysis:2,charm:2,nerve:2}, job:null, pos:{}, ppos:{}, px:{}, hist:{}, drift:{}, signals:{}, aff:{}, flags:{}, home:{tier:0, pass:0}, study:{pts:0, cert:0}, cooldown:{}, cv:[], ms:null, insider:null, scene:{k:'home'}, player:{x:4,y:5,dir:'down'}, over:null };
+  for (const k of TICK){ s.px[k.t]=40+rnd()*160; s.hist[k.t]=[]; s.drift[k.t]=(rnd()-0.5)*0.02; s.pos[k.t]=0; s.ppos[k.t]=0; for (let i=0;i<30;i++){ s.px[k.t]*=1+s.drift[k.t]*0.5+k.vol*gauss(); s.hist[k.t].push(s.px[k.t]); } }
+  return s; }
+const save=()=>{ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} };
+const load=()=>{ try{ const j=localStorage.getItem(KEY); if(j){ const o=JSON.parse(j); if (o&&o.player&&o.scene) return o; } }catch(e){} return null; };
+S=load()||fresh();
+const firm=()=>S.job?firmById(S.job.firm):null;
+const rankName=()=>{ const f=firm(); if (!f) return 'Unemployed'; return S.job.rank>=3?f.top:RANKS[S.job.rank].t; };
+const book=()=>{ const f=firm(); if (!f) return 0; return Math.min(f.maxBook, f.book*RANKS[S.job.rank].mult)*(S.job.boost?1.25:1)*(S.job.cut?0.5:1); };
+const maxEnergy=()=>HOMES[S.home.tier].energy;
+const xpNeed=()=>S.lvl*80;
+function gainXp(n){ S.xp+=n; while (S.xp>=xpNeed()){ S.xp-=xpNeed(); S.lvl++; S.pts++; toast(`LEVEL ${S.lvl}! +1 stat point (MENU)`); } }
+function useEnergy(n){ if (S.energy<n){ toast('Too tired. Go home and sleep.'); return false; } S.energy-=n; hud(); return true; }
+const affKey=kind=>S.job?S.job.firm+':'+kind:'x:'+kind;
+const aff=(kind,n)=>{ const k=affKey(kind); S.aff[k]=clamp((S.aff[k]||0)+n,-100,100); };
+const affOf=kind=>S.aff[affKey(kind)]||0;
+const netWorth=()=>S.cash+TICK.reduce((a,k)=>a+(S.ppos[k.t]||0)*S.px[k.t],0);
+// what a firm requires, as a list of {t, ok}
+function reqs(f){ const r=f.req||{}, out=[];
+  if (r.cert) out.push({t:`AFA level ${r.cert}`, ok:S.study.cert>=r.cert});
+  if (r.rep) out.push({t:`Reputation ${r.rep}`, ok:S.rep>=r.rep});
+  for (const st of ['analysis','charm','nerve']) if (r[st]) out.push({t:`${st[0].toUpperCase()+st.slice(1)} ${r[st]}`, ok:S.stats[st]>=r[st]});
+  return out; }
+const qualifies=f=>reqs(f).every(x=>x.ok);
+
+/* ---------- quests (derived from state, so they never desync) ---------- */
+const QUESTS=[
+  {id:'job', t:'Get a job', d:'Take the train to Lombard City and apply. Brickhouse Trading takes anyone.', done:s=>!!s.job||s.cv.length>0},
+  {id:'first', t:'First research', d:'Sit at your desk (the yellow one) and research a stock.', done:s=>s.flags.researched},
+  {id:'trade', t:'First trade', d:'Take a position after your research.', done:s=>s.flags.traded},
+  {id:'quarter', t:'Survive a quarter', d:'Beat your rival on P&L before the quarterly review (every 12 working days).', done:s=>s.flags.q1},
+  {id:'afa1', t:'Pass AFA level I', d:'Study at home or in the library, then sit the exam at the AFA Institute in the city. Opens the banks.', done:s=>s.study.cert>=1},
+  {id:'afa2', t:'Pass AFA level II', d:'Needed by Silverman Sachs and the North Sea Sovereign Fund.', done:s=>s.study.cert>=2, show:s=>s.study.cert>=1},
+  {id:'ms', t:'The earnings case', d:'Your boss wants a view before the report. Collect clues from colleagues, the terminal and the café, then decide at your desk.', done:s=>s.ms&&s.ms.stage>=3, show:s=>!!s.ms},
+  {id:'home', t:'Move somewhere better', d:'Use the laptop. A better flat gives more energy per day.', done:s=>s.home.tier>=1},
+  {id:'big', t:'Join a big firm', d:'A firm with a ceiling of $100M or more. Big firms pay less at the start but go much further.', done:s=>s.cv.concat(s.job?[s.job.firm]:[]).some(id=>firmById(id).maxBook>=1e8)},
+  {id:'top', t:'Reach the top', d:'Become Partner, Managing Director or CIO somewhere with a real book. Or start your own fund.', done:s=>s.over==='won'},
+];
+
+/* ---------- scenes ---------- */
+let SC=null, NPCS=[];
+function buildScene(k, firmId){
+  if (k==='home') return {k, rows:HOME_MAP, buildings:[], name:HOMES[S.home.tier].t};
+  if (k==='village') return {k, rows:VILLAGE.rows, buildings:VILLAGE.buildings, platform:VILLAGE.platform, name:'Ashbury'};
+  if (k==='city') return {k, rows:CITY.rows, buildings:CITY.buildings, name:'Lombard City'};
+  const f=firmById(firmId); return {k:'office', rows:OFFICE_MAP, buildings:[], firm:f, name:f.name};
+}
+const tile=(x,y)=>(y<0||y>=SC.rows.length||x<0||x>=SC.rows[0].length)?'#':SC.rows[y][x];
+const solid=c=>SOLID.includes(c), interactable=c=>INTERACT.includes(c);
+const SHIRT={mentor:'#3f8a5a', rival:'#8a2b2b', quant:'#6f6a8a', compliance:'#8a8f9c', intern:'#eeeeee'};
+function spawnNPCs(){ NPCS=[]; if (SC.k!=='office') return; const f=SC.firm; const st=f.staff;
+  const mk=(kind, def, x, y, patrol)=>{ const h=hash(def.name); const shirt=kind==='boss'?f.color:(SHIRT[def.kind||kind]); return {id:kind, kind:def.kind||kind, name:def.name, role:def.title, x, y, fx:x, fy:y, dir:'down', t:rnd()*100, patrol, frames:charFrames(HAIRS[h%HAIRS.length], shirt, (h>>3)%2?'#1c1a22':'#2b2f3c', SKINS[(h>>5)%SKINS.length])}; };
+  NPCS.push(mk('boss', st.boss, 9, 3), mk('mentor', st.mentor, 5, 9, [[5,9],[8,9]]), mk('rival', st.rival, 11, 11, [[11,11],[14,11]]), mk('extra', st.extra, 18, 12)); }
+function go(k, firmId, x, y, dir){ S.scene={k, firm:firmId||null}; SC=buildScene(k, firmId); spawnNPCs(); P.x=x; P.y=y; P.fx=x; P.fy=y; P.dir=dir||'down'; P.moving=false; P.path=[]; P.after=null; S.player={x,y,dir:P.dir}; resize(); hud(); save(); }
+const cityDoor=id=>CITY.buildings.find(b=>b.id===id);
+
+/* ---------- dialogue system ---------- */
+let dlg=null;
+const PLAYER_FRAMES=charFrames('#2b1d12','#f5c542','#1c1a22');
+function say(npc, text, choices){ dlg={npc}; $('dlg').classList.add('open'); $('dname').textContent=npc?`${npc.name} · ${npc.role}`:'Dave';
+  const pc=$('portrait').getContext('2d'); pc.clearRect(0,0,28,28); pc.drawImage((npc||{frames:PLAYER_FRAMES}).frames.portrait,0,0);
+  typewrite($('dtext'), text); const c=$('choices'); c.innerHTML='';
+  (choices||[{l:'Continue', f:closeDlg}]).forEach(ch=>{ const b=document.createElement('button'); b.innerHTML=ch.l+(ch.s?`<small>${ch.s}</small>`:''); if (ch.cls) b.className=ch.cls; if (ch.dis) b.disabled=true; b.onclick=()=>{ ch.f?ch.f():closeDlg(); }; c.appendChild(b); }); }
+function closeDlg(){ dlg=null; $('dlg').classList.remove('open'); $('choices').innerHTML=''; hud(); save(); }
+let tw; function typewrite(el, text){ clearTimeout(tw); el.textContent=''; let i=0; const step=()=>{ el.textContent=text.slice(0,++i); if (i<text.length) tw=setTimeout(step, 12); }; step(); el.onclick=()=>{ clearTimeout(tw); el.textContent=text; }; }
+const npcByKind=k=>NPCS.find(n=>n.id===k);
+const first=n=>n.split(' ').filter(w=>!w.endsWith('.'))[0];
+
+/* ---------- the earnings case (one per firm; the ticker and the outcome are rolled secretly) ---------- */
+function startMission(f){ const ex=(f.rules&&f.rules.exclude)||[]; const k=pick(TICK.filter(x=>!ex.includes(x.t)));
+  S.ms={firm:f.id, tk:k.t, stage:1, truth:rnd()<0.5?'beat':'miss', clues:[], earnDay:S.day+3, bet:null, big:false, honest:false}; S.ms.rival=(S.ms.truth==='miss')===(rnd()<0.7)?'short':'long'; S.flags['ms_'+f.id]=true; }
+const msHere=()=>S.ms&&S.job&&S.ms.firm===S.job.firm?S.ms:null;
+const msTk=()=>tk(S.ms.tk);
+function clueText(src){ const m=S.ms, k=msTk(), beat=m.truth==='beat';
+  if (src==='mentor') return beat ? `${k.n}? Their CFO left last month and it spooked people. But read the footnotes of the last quarterly: they have bought back their own shares every single week since. Management doesn't buy when it knows it's about to miss.` : `${k.n}? Their CFO left last month. "Personal reasons", they say. Read the latest guidance again: the language went from "strong demand" to "challenging environment". That doesn't happen by accident.`;
+  if (src==='quant'){ const clear=S.stats.analysis>=3||S.flags.quantModel; const up=beat!==(!clear&&rnd()<0.35); return (up?`Alternative data on ${k.t}: activity on their biggest line is up 8% this quarter.`:`Alternative data on ${k.t}: activity on their biggest line is down 6% this quarter.`)+(clear?' The data is clean; I have adjusted for seasonality.':' But careful: it is noisy and I haven\'t adjusted for seasonality. I wouldn\'t bet the house on it.'); }
+  if (src==='compliance'){ const up=beat!==(S.stats.analysis<3&&rnd()<0.25); return `I read the insider filings so you don't have to. In the window before the blackout, two ${k.t} directors ${up?'bought':'sold'} stock. ${up?'People don\'t buy before bad news.':'People rarely sell before good news.'} Don't quote me.`; }
+  if (src==='intern') return `Psst. ${first(SC.firm.staff.rival.name)} was in the kitchen on the phone. Said they're going ${m.rival} ${k.t} "with everything I have". Didn't see me. I think.`;
+  if (src==='terminal') return `${k.t}: −12% in a week.\n`+(beat?'Turnover has been low; the selling comes from a few large holders, not broad panic. Short interest is 22%: a lot of people have to buy back if this goes the other way.':'The drop came on heavy volume, and two executives sold shares in the period. Short interest is 22%, and those shorts usually do their homework.');
+  if (src==='cafe'){ const reliable=rnd()<(S.stats.charm>=4?0.8:0.65); const up=beat===reliable; return `A sell-side analyst at the next table is on the phone about ${k.n}. "${up?'Channel checks look strong. I think they beat.':'Channel checks are soft. I think they miss.'}" You pretend to read the menu.`; }
+}
+function addClue(src){ const m=S.ms; if (!m||m.clues.includes(src)) return null; m.clues.push(src); gainXp(12); return clueText(src); }
+
+/* ---------- NPC dialogue, generic over firms. Order of checks is priority: missions first, then one-offs, then idle lines. ---------- */
+const DIALOG={
+  boss(n){ const f=SC.firm, j=S.job, m=msHere(), riv=first(f.staff.rival.name);
+    if (!j.met){ j.met=true; gainXp(20); return say(n, `So you're the new one. Dave, right? ${moneyM(book())} to start with. Lose it and you're out. Make money and we'll talk again.\n\nYour desk is the yellow one. ${riv} sits next to you and is good. Be better.`, [{l:'Understood.', f:closeDlg}, {l:`"${moneyM(book())} isn't much."`, s:'Nerve', f:()=>{ if (S.stats.nerve>=3){ aff('boss',5); j.frep+=3; say(n,'Ha. Cheeky. I like it, if you can back it up.'); } else { aff('boss',-5); say(n,'Then go and turn it into twice as much. Then we talk.'); } }}]); }
+    if (j.days>=2 && !S.ms && !S.flags['ms_'+f.id]){ startMission(f); const k=msTk(); gainXp(15);
+      return say(n, `${k.n}. ${k.t}. They report in three days and the stock is down 12% in a week. Everyone has an opinion, nobody knows anything.\n\nFind out what's going on. ${first(f.staff.mentor.name)} knows the company, ${first(f.staff.extra.name)} sees things the rest of us don't, the terminal has the tape, and the café downstairs hears everything. Come back with a view, or a good reason not to have one.`, [{l:'On it.', f:closeDlg}]); }
+    if (m && m.stage===2){ m.stage=3; const right=m.bet&&m.bet!=='none'&&((m.bet==='long')===(m.truth==='beat')); let t, d=0;
+      if (m.bet==='none'&&m.honest){ d=4; t='You came in and said "I don\'t know" with three clues in your hand. Most people guess and hope. I prefer "don\'t know" to an expensive guess. Next time, though, I want a view.'; }
+      else if (!m.bet||m.bet==='none'){ d=-3; t='I asked you to find something out, and you found out how to stay away. That is not the same thing.'; }
+      else if (right&&m.big){ d=14; t=`You came to me for firm capital and you were right. ${m.truth==='beat'?'Beat':'Miss'}, exactly as you said. That is how you build a name here.`; aff('boss',15); gainXp(120); if (rnd()<0.5){ S.stats.nerve++; t+='\n\n+1 Nerve.'; } }
+      else if (right){ d=9; t=`Right direction, sensible size. ${m.truth==='beat'?'They beat':'They missed'} and you were on the right side. Good work.`; aff('boss',8); gainXp(80); }
+      else if (m.big){ d=-10; t='You asked for firm capital and you were wrong. It happens. It must not happen twice.'; aff('boss',-10); }
+      else { d=-5; t=`Wrong direction. ${m.clues.length<2?'And you had barely spoken to anyone. ':''}Learn from it.`; }
+      j.frep+=d; S.rep+=Math.round(d/2); const rivRight=(m.rival==='long')===(m.truth==='beat'); t+=rivRight?`\n\n${riv} was right, by the way. Again.`:`\n\n${riv} lost a fortune on it. Don't tell them I said so.`;
+      return say(n, t+`\n\nFirm reputation ${d>=0?'+':''}${d}.`); }
+    if (m && m.stage===1){ if (m.bet==='none'&&m.honest) return say(n,'Noted. We\'ll see what they report.');
+      return say(n, `${m.tk} reports in ${m.earnDay-S.day} day(s). What have you got?`, [ ...(m.clues.length>=2&&!m.bet&&S.stats.nerve>=3 ? [{l:'Pitch: let me trade it with firm capital', cls:'gold', s:'Nerve · double the stake, double the consequence', f:()=>{ m.big=true; say(n,'You\'ve got some nerve. Fine. Take your view at your desk and I\'ll double it. Be wrong and we talk.'); }}] : []),
+        {l:'"I don\'t know yet."', s:'Honest. Counts as an answer if you have clues.', f:()=>{ if (m.clues.length>=3&&!m.bet){ m.bet='none'; m.honest=true; say(n,'Hm. Three sources and no view. That is either wise or cowardly. We\'ll find out which.'); } else say(n,'Then find out.'); }}, {l:'Still working on it', f:closeDlg}]); }
+    if (S.flags.reportPending===f.id){ S.flags.reportPending=null; j.frep+=6; S.rep+=4; aff('boss',10); gainXp(30); return say(n,`${riv} and I have had a conversation. You did the right thing, and I don't forget that.`); }
+    if (j.pnlQ<-book()*0.05) return say(n, `You're down ${pct(j.pnlQ/book()*100)} this quarter. I've seen people disappear for less. Fix it.`);
+    if (j.pnlQ>book()*0.03&&!j.boost) return say(n, `${pct(j.pnlQ/book()*100)}. Not bad. Keep your head; it's when things go well that people get stupid.`, [{l:'Ask for a bigger book', s:'Charm · chance', f:()=>{ if (rnd()<0.3+S.stats.charm*0.1){ j.boost=true; j.frep+=4; say(n,'Fine. 25% more until the quarterly review. Don\'t disappoint me.'); } else say(n,'No. Show me a whole quarter first.'); }}, {l:'Thanks.', f:closeDlg}]);
+    return say(n, pick(f.lines.boss.concat(['What do you want? I have a call in three minutes.'])));
+  },
+  mentor(n){ const f=SC.firm, m=msHere();
+    if (!S.flags['lesson_'+f.id]){ S.flags['lesson_'+f.id]=true; gainXp(25); aff('mentor',10); let t=`Welcome. Let me give you the most important advice in one go: a chart tells you what happened. Research tells you what is happening now. The signal is never clean; it is a probability, not a promise.`; if (!S.flags.firstLesson){ S.flags.firstLesson=true; S.stats.analysis++; t+='\n\n+1 Analysis.'; } return say(n,t); }
+    if (m&&m.stage===1&&!m.clues.includes('mentor')) return say(n, addClue('mentor'));
+    if (S.energy>=1&&!S.flags.lessonToday) return say(n,'Got half an hour for the whiteboard?', [{l:'Yes (1 energy)', s:'+XP, chance of +Analysis', f:()=>{ if(!useEnergy(1)) return; S.flags.lessonToday=true; gainXp(15); aff('mentor',3); if (rnd()<0.22){ S.stats.analysis++; say(n,'There! You saw it before I did. +1 Analysis.'); } else say(n,'Good. We continue tomorrow.'); }}, {l:'Not now', f:closeDlg}]);
+    return say(n, pick(f.lines.mentor.concat(['Close the positions you no longer believe in. Hope is not a strategy.'])));
+  },
+  rival(n){ const f=SC.firm, j=S.job, m=msHere(); const lead=j.pnlQ-j.rivalPnl;
+    if (S.ms&&S.ms.firm===f.id&&S.ms.stage>=2&&!S.flags['msRival_'+f.id]){ S.flags['msRival_'+f.id]=true; const right=(S.ms.rival==='long')===(S.ms.truth==='beat'); j.rivalPnl+=book()*(right?0.07:-0.07);
+      return say(n, right?`${S.ms.tk}. Didn't I say so? Oh, right. I didn't say it to you.`:`Don't. Not one word about ${S.ms.tk}.`, [{l:'…', f:closeDlg}, ...(right?[]:[{l:'"With everything you had, I heard."', s:'Nerve · they hate you a little more', f:()=>{ aff('rival',-15); j.frep+=1; say(n,`Who told you that? ${first(f.staff.extra.name)}? I'll kill them.`); }}])]); }
+    if (!S.flags['tip_'+f.id]&&j.days>=5&&affOf('rival')>-5){ S.flags['tip_'+f.id]=true; const k=pick(TICK.filter(x=>!S.ms||x.t!==S.ms.tk)); const comp=f.staff.extra.kind==='compliance'?first(f.staff.extra.name)+' in compliance':first(f.staff.boss.name);
+      return say(n,`Listen. I have a friend at a law firm. ${k.n} gets bought on Friday. It isn't public. Buy now and we share the credit at the review.`, [{l:`Buy ${k.t} big`, cls:'red', s:'Insider trading. Big win. Risk of the regulator.', f:()=>{ S.insider={firm:f.id, tk:k.t}; S.drift[k.t]=0.08; S.pos[k.t]+=Math.floor(book()*0.4/S.px[k.t]); aff('rival',15); say(n,'Smart. We never spoke.'); }}, {l:'"No. And neither should you."', s:'Nerve', f:()=>{ aff('rival',-20); j.frep+=2; say(n,'Your loss. Literally.'); }}, {l:`Report it to ${comp}`, s:'Reputation ++, your rival hates you', f:()=>{ aff('rival',-50); S.flags.reportPending=f.id; say(n,'…You didn\'t. You did not just do that.'); }}]); }
+    return say(n, lead>0? pick(f.lines.rival.concat(['Enjoy it. It won\'t last.','Lucky quarter. I\'ve seen it before.'])) : pick(f.lines.rival.concat([`How's the book? Oh. I saw.`,`I'm up ${pct(j.rivalPnl/book()*100)}. You?`])));
+  },
+  extra(n){ const f=SC.firm, m=msHere(), kind=n.kind;
+    if (S.flags.reportPending===f.id&&kind==='compliance'){ S.flags.reportPending=null; S.job.frep+=6; S.rep+=4; aff('extra',20); gainXp(30); return say(n,`I've spoken to ${first(f.staff.rival.name)}. And to ${first(f.staff.boss.name)}. You did the right thing, and I won't forget it.\n\nIf you're ever unsure about a trade, come to me first.`); }
+    if (m&&m.stage===1&&!m.clues.includes('extra')) { m.clues.push('extra'); gainXp(12); return say(n, clueText(kind)); }
+    if (kind==='quant'){ if (S.flags.quantModel) return say(n, pick(f.lines.extra.concat(['The model runs. Your signal at the desk is cleaner now.'])));
+      const h=S.flags.quantHelp||0; if (h>=2){ S.flags.quantModel=true; gainXp(40); aff('extra',20); return say(n,'Thank you. Here is the access. Your signals are sharper now; see for yourself at your desk.'); }
+      return say(n, h?'One more session and I\'ll give you the model.':'I have a drift model. Not perfect, but better than your gut. Help me label two batches of data and you get access.', [{l:'Label data (1 energy)', s:'+XP', f:()=>{ if(!useEnergy(1)) return; S.flags.quantHelp=h+1; gainXp(15); aff('extra',8); say(n, h?'Done. Come back for the access.':'Tedious, isn\'t it? One more.'); }}, {l:'Not now', f:closeDlg}]); }
+    if (kind==='compliance'){ if (S.insider&&S.insider.firm===f.id) return say(n,`There is a pattern in the ${S.insider.tk} trades I don't understand. I'm looking into it.`, [{l:'"I had a strong thesis."', s:'Nerve', f:()=>{ if (S.stats.nerve>=4) say(n,'Hm. Send me your notes.'); else { S.insider.suspect=true; say(n,'You blinked. Send me your notes today.'); } }}, {l:'Say nothing', f:closeDlg}]);
+      return say(n, pick(f.lines.extra.concat(['The rule is simple: if you wouldn\'t tell your mother, don\'t trade on it.','I sleep well at night. My job is making sure you do too.']))); }
+    if (!S.flags['intern_'+f.id]) return say(n,'Hi! Do you know how to do a pivot in pandas? Nobody answers me.', [{l:'Show them (1 energy)', s:'+XP, +relationship', f:()=>{ if(!useEnergy(1)) return; S.flags['intern_'+f.id]=true; aff('extra',20); gainXp(15); say(n,'Wow, thanks! I owe you one.'); }}, {l:'"Google it."', f:()=>{ S.flags['intern_'+f.id]=true; aff('extra',-10); say(n,'…Okay.'); }}]);
+    return say(n, pick(f.lines.extra.concat(['Do you think they\'ll keep me after the summer?','The coffee machine is broken again. Or it\'s me.'])));
+  }
+};
+
+/* ---------- objects & places ---------- */
+function interactTile(c){
+  if (SC.k==='office'){
+    if (c==='d') return deskMenu();
+    if (c==='C'){ if ((S.flags.coffee||0)>=2) return say(null,'Any more coffee and you\'ll shake too much to use the mouse.'); S.flags.coffee=(S.flags.coffee||0)+1; S.energy=Math.min(maxEnergy(),S.energy+1); hud(); return say(null,'Coffee. The lever creaks, but it works. +1 energy.'); }
+    if (c==='T'){ const m=msHere(); if (m&&m.stage===1&&!m.clues.includes('terminal')) return say(null, addClue('terminal'));
+      return say(null, TICK.map(k=>{ const h=S.hist[k.t]; const ch=(h[h.length-1]/h[h.length-2]-1)*100; return `${k.t}  ${S.px[k.t].toFixed(2)}  ${pct(ch)}`; }).join('\n')+`\n\nQuarter P&L: ${money(S.job.pnlQ)} · ${first(SC.firm.staff.rival.name)}: ${money(S.job.rivalPnl)}`); }
+    if (c==='E'){ const b=cityDoor(SC.firm.id); return say(null,'The lift. Out into the city, or call it a day? The market trades overnight.', [{l:`Call it a day: train home & sleep (${fareText()})`, cls:'gold', f:()=>{ if (!payFare()) return; endDay(); }}, {l:'Out into the city', f:()=>{ closeDlg(); go('city',null,b.dx,b.dy+1,'down'); }}, {l:'Stay a while', f:closeDlg}]); }
+    if (c==='b') return say(null, pick(['"Reminiscences of a Stock Operator". Worn spine.','A binder of compliance rules. Someone has drawn a cartoon in the margin.','Old annual reports. The smell of paper and low interest rates.']));
+    if (c==='P') return say(null,`${first(SC.firm.staff.boss.name)}'s desk. Three screens, a photo of a sailing boat and no chairs for visitors.`);
+  }
+  if (SC.k==='home'){
+    if (c==='z') return say(null, `${HOMES[S.home.tier].t}. ${HOMES[S.home.tier].desc}\n\nGo to sleep? The market trades overnight.`, [{l:'Sleep', cls:'gold', f:endDay}, {l:'Not yet', f:closeDlg}]);
+    if (c==='l') return laptop();
+    if (c==='F'){ if (S.flags.ate) return say(null,'The fridge hums. There is nothing else in it today.'); if (S.cash<8) return say(null,'Half a lemon and a jar of mustard. You can\'t afford groceries.'); S.flags.ate=true; S.cash-=8; S.energy=Math.min(maxEnergy(),S.energy+1); hud(); return say(null,'Beans on toast. $8. +1 energy.'); }
+    if (c==='E'){ closeDlg(); const b=VILLAGE.buildings[0]; return go('village',null,b.dx,b.dy+1,'down'); }
+    if (c==='W') return say(null, ['Rain on the window. Below, the chip shop queue. Beyond it, the railway line to the city.','The duck pond. A heron. The 7:42 rattling past in the distance.','The river, the mill wheel, the lights of Lombard City far off on the horizon.'][S.home.tier]);
+  }
+}
+const fareText=()=>S.home.pass>=S.day?'season ticket':`$${FARE}`;
+function payFare(){ if (S.home.pass>=S.day) return true; if (S.cash<FARE){ say(null,'You can\'t afford a ticket. Beans and dignity, both running low.'); return false; } S.cash-=FARE; return true; }
+function doorTrigger(b){
+  if (b.kind==='home') return go('home',null,4,6,'up');
+  if (b.kind==='station') return say(null,'Lombard City Central. The 17:48 to Ashbury is on platform 2.', [{l:`Train home (${fareText()})`, cls:'gold', f:()=>{ if (!payFare()) return; closeDlg(); go('village',null,12,3,'down'); }}, {l:'Stay in the city', f:()=>{ closeDlg(); P.y++; P.fy=P.y; }}]);
+  if (b.kind==='firm') return reception(firmById(b.id), b);
+  if (b.kind==='cafe') return cafe();
+  if (b.kind==='afa') return institute();
+  if (b.kind==='pub') return pub();
+  if (b.kind==='lib') return library();
+}
+function stepBack(){ closeDlg(); P.y++; P.fy=P.y; P.dir='down'; }
+function trainToCity(){ say(null,'Ashbury station. One platform, one bench, one timetable from 1998. The 7:42 to Lombard City is due.', [{l:`Take the train (${fareText()})`, cls:'gold', f:()=>{ if (!payFare()) return; closeDlg(); const b=cityDoor('station'); go('city',null,b.dx,b.dy+1,'down'); }}, {l:'Wait', f:()=>{ closeDlg(); P.y++; P.fy=P.y; P.dir='down'; }}]); }
+
+/* reception & interviews */
+function reception(f, b){
+  const employedHere=S.job&&S.job.firm===f.id;
+  if (employedHere){ closeDlg(); return go('office',f.id,9,13,'up'); }
+  const rq=reqs(f), ok=qualifies(f), cd=(S.cooldown[f.id]||0)>S.day;
+  const lines=rq.length?rq.map(r=>`${r.ok?'✓':'✗'} ${r.t}`).join('\n'):'No formal requirements.';
+  const prof=`Salary ${money(f.salary)}/day · book ${moneyM(f.book)} → up to ${moneyM(f.maxBook)} · bonus ${Math.round(f.bonus*100)}% · fired at −${Math.round(f.fireLoss*100)}%`;
+  say(null, `${f.name}.\n${f.desc}\n\n${prof}\n\nRequirements:\n${lines}`, [
+    ...(S.job ? [{l:`Resign from ${firm().name} and apply here (1 energy)`, cls:'red', s:'One employer at a time. You lose your book and positions. Fail the interview and you are unemployed.', dis:!(ok&&!cd), f:()=>{ if (!useEnergy(1)) return; resign(); interview(f,b); }}, ...(!(ok&&!cd)?[{l: cd?`Come back in ${S.cooldown[f.id]-S.day} day(s)`:'You don\'t qualify yet', dis:true}]:[])] :
+      ok&&!cd ? [{l:`Apply (1 energy)`, cls:'gold', s:'Three questions. Stats and a little luck.', f:()=>{ if (!useEnergy(1)) return; interview(f,b); }}] : [{l: cd?`Come back in ${S.cooldown[f.id]-S.day} day(s)`:'You don\'t qualify yet', dis:true}]),
+    {l:'Leave', f:stepBack}]);
+}
+function interview(f, b){ const qs=INTERVIEWS[f.type]; let i=0, score=0; const bossN={name:f.staff.boss.name, role:f.staff.boss.title, frames:charFrames(HAIRS[hash(f.staff.boss.name)%HAIRS.length], f.color, '#1c1a22', SKINS[(hash(f.staff.boss.name)>>5)%SKINS.length])};
+  const next=()=>{ if (i>=qs.length) return verdict(); const q=qs[i++];
+    say(bossN, q.q, q.a.map(a=>({l:a.l, f:()=>{ const w=f.likes.includes(a.s)?1:0.55; const roll=S.stats[a.s]*w+rnd()*1.6+S.cv.length*0.3; const pass=roll>=f.diff; score+=pass?1:0; toast(pass?'Good answer.':'Hm.'); next(); }}))); };
+  const verdict=()=>{ gainXp(15); if (score>=2){ hire(f); return say(bossN, `${score===3?'Best interview I\'ve had all year.':'Good enough.'} You start now. Your desk is the yellow one.`, [{l:'Thank you.', f:()=>{ closeDlg(); go('office',f.id,9,13,'up'); }}]); }
+    S.cooldown[f.id]=S.day+5; if (rnd()<0.3){ S.stats.nerve++; toast('+1 Nerve. Rejection builds character.'); } return say(bossN, pick(['We\'ll be in touch. We won\'t, actually.','Not this time. Come back when you\'ve learned something.','Thank you for your time. The lift is to the left.']), [{l:'…', f:stepBack}]); };
+  next(); }
+function resign(){ const f=firm(); S.cv.push(f.id); S.flags.fromRank=S.job.rank; if (S.ms&&S.ms.firm===f.id) S.ms=null; S.job=null; for (const k of TICK) S.pos[k.t]=0; save(); hud(); }
+function hire(f){ if (S.job) resign(); const start=(S.flags.fromRank||0)>=2?1:0; S.flags.fromRank=0;
+  S.job={firm:f.id, rank:start, frep:10+Math.min(20,S.cv.length*5), pnlQ:0, rivalPnl:0, days:0, met:false, boost:false, cut:false}; for (const k of TICK) S.pos[k.t]=0; if (S.ms&&S.ms.firm!==f.id) S.ms=null; S.rep+=3; }
+
+/* city café, village pub, library, exam institute */
+function cafe(){ const m=msHere();
+  say(null,'Café Liquidity. Flat whites, bankers on the phone, and a barista who knows everyone\'s order and everyone\'s bonus.', [
+    {l:'Coffee ($6, +1 energy)', s:S.flags.cafeCoffee?'Already had one today':'', dis:!!S.flags.cafeCoffee, f:()=>{ if (S.cash<6) return say(null,'Card declined. The barista pretends not to notice.'); S.cash-=6; S.flags.cafeCoffee=true; S.energy=Math.min(maxEnergy(),S.energy+1); hud(); say(null,'Good coffee. +1 energy.'); }},
+    ...(m&&m.stage===1&&!m.clues.includes('cafe')?[{l:'Listen in on the next table', cls:'gold', s:'Earnings case clue', f:()=>say(null, addClue('cafe'))}]:[]),
+    {l:'Network (1 energy, $40)', s:'Charm · reputation, maybe +Charm', f:()=>{ if (S.cash<40) return say(null,'Networking costs money. You have none.'); if (!useEnergy(1)) return; S.cash-=40; const r=rnd()*4+S.stats.charm; const d=r>6?3:r>4?2:r>2.5?1:0; S.rep+=d; gainXp(10); let t=d?`You swap cards with a ${pick(['VP from Silverman Sachs','risk manager from BlackBoulder','trader from Bastion','grad from HBBB'])}. Reputation +${d}.`:'You talk to a man who turns out to be a recruiter for a timeshare company. Nothing gained.'; if (rnd()<0.2){ S.stats.charm++; t+=' You are getting better at this. +1 Charm.'; } const hiring=pick(FIRMS); t+=`\n\nOverheard: ${hiring.name} is ${pick(['hiring','losing people','restructuring','having a good year'])}.`; say(null,t); }},
+    {l:'Leave', f:stepBack}]); }
+function pub(){ say(null,'The Crown & Ledger. Low beams, a fire, and a landlord who used to work "in the City" and will tell you about it.', [
+    {l:'Pie and a pint ($12, +1 energy)', dis:!!S.flags.pub, s:S.flags.pub?'Already eaten today':'', f:()=>{ if (S.cash<12) return say(null,'The landlord shakes his head. No tab for analysts.'); S.cash-=12; S.flags.pub=true; S.energy=Math.min(maxEnergy(),S.energy+1); hud(); say(null,'Steak and ale pie. +1 energy. The landlord tells you about 1987 again.'); }},
+    {l:'Chat with the locals (1 energy)', s:'Chance of +Charm', f:()=>{ if (!useEnergy(1)) return; gainXp(8); if (rnd()<0.25){ S.stats.charm++; say(null,'You make the whole bar laugh with a story about the interview. +1 Charm.'); } else say(null, pick(['The farmer thinks the stock market is "a casino with better suits". He is not entirely wrong.','The landlord: "In my day we shouted. Now you click. Same thing, less fun."','Someone\'s cousin works at Barkleys. Apparently the canteen is excellent.'])); }},
+    {l:'Leave', f:stepBack}]); }
+function library(){ say(null,'Ashbury Library. Three shelves of finance, a kind librarian and a radiator that actually works.', [
+    {l:'Study for the AFA exam (2 energy)', cls:'gold', s:'+2 study points, chance of +Analysis', f:()=>{ if (!useEnergy(2)) return; study(2); }},
+    {l:'Read old annual reports (1 energy)', s:'+XP', f:()=>{ if (!useEnergy(1)) return; gainXp(12); say(null, pick(['Meridian Bank, 1996. Fewer pictures, more numbers. You learn what "goodwill" hides.','Orbital Freight has had four CFOs in nine years. You write that down.','A pamphlet: "Passive investing: why your fund manager is a coin flip in a suit."'])); }},
+    {l:'Leave', f:stepBack}]); }
+function study(n){ S.study.pts+=n; gainXp(10*n); let t=`You study. ${n} study point${n>1?'s':''} (${S.study.pts} total).`; if (rnd()<0.12*n){ S.stats.analysis++; t+=' Something clicks. +1 Analysis.'; } const need=S.study.cert===0?4:10; t+=S.study.cert>=2?'':`\nNext exam needs ${need} points${S.study.pts>=need?'. You\'re ready. The AFA Institute is in the city.':'.'}`; say(null,t); }
+function institute(){ const lvl=S.study.cert+1; if (lvl>2) return say(null,'AFA Institute. You hold both levels. The receptionist asks if you\'d like to teach.', [{l:'Leave', f:stepBack}]);
+  const need=lvl===1?4:10, fee=lvl===1?300:600; const p=clamp(0.35+0.1*S.stats.analysis+0.04*(S.study.pts-need),0.05,0.95);
+  say(null,`AFA Institute. Associate Financial Analyst, level ${lvl}. Fee ${money(fee)}. You have ${S.study.pts} study points (${need} needed).\n\n${S.study.pts>=need?`Estimated chance: ${Math.round(p*100)}%.`:'You are not ready to sit it.'}`, [
+    ...(S.study.pts>=need?[{l:`Sit the exam (${money(fee)}, 2 energy)`, cls:'gold', f:()=>{ if (S.cash<fee) return say(null,'You can\'t afford the fee.'); if (!useEnergy(2)) return; S.cash-=fee; if (rnd()<p){ S.study.cert=lvl; S.rep+=5; gainXp(60); say(null,`PASS. You are AFA level ${lvl}. ${lvl===1?'The banks will talk to you now.':'Silverman Sachs and the sovereign fund will talk to you now.'}`); } else say(null,'FAIL. The paper was heavy on fixed income. Your study points stay; come back after more study.'); }}]:[]),
+    {l:'Leave', f:stepBack}]); }
+
+/* the laptop at home: job portal, study, personal brokerage, housing, tickets, your own fund */
+function laptop(){ const canFund=netWorth()>=300000&&S.rep>=100;
+  say(null,`Your laptop. ${S.job?`Payslips from ${firm().name}.`:'An inbox full of rejections.'} Net worth ${money(netWorth())}.`, [
+    {l:'Job portal', s:'All firms, requirements, what you qualify for', f:jobPortal},
+    {l:'Study for the AFA exam (2 energy)', s:'+1 study point (the library gives 2)', f:()=>{ if (!useEnergy(2)) return; study(1); }},
+    {l:'Hawkeye Brokers: personal account', s:'Trade your own money', f:brokerage},
+    ...(S.job?[{l:`Resign from ${firm().name}`, cls:'red', s:'You keep your reputation and CV, lose the book. No cooldown.', f:()=>say(null,`Resign from ${firm().name}? You can apply anywhere afterwards.`, [{l:'Resign', cls:'red', f:()=>{ const n=firm().name; resign(); say(null,`You send a two-line email to ${n}. Nobody replies. You are unemployed.`); }}, {l:'Stay', f:laptop}])}]:[]),
+    {l:'Housing', s:HOMES[S.home.tier].t, f:housing},
+    {l:S.home.pass>=S.day?`Season ticket valid ${S.home.pass-S.day} more day(s)`:`Buy season ticket ($${PASS_COST}, ${PASS_DAYS} days)`, dis:S.home.pass>=S.day, f:()=>{ if (S.cash<PASS_COST) return say(null,'Not enough money.'); S.cash-=PASS_COST; S.home.pass=S.day+PASS_DAYS; say(null,'Season ticket bought. The train is free for a month.'); }},
+    ...(canFund?[{l:'Found your own fund', cls:'gold', s:'You have the money and the name. This ends the game.', f:()=>{ S.over='won'; save(); say(null,'You register "'+pick(['Ashbury','Mill Lane','Hollow Oak'])+' Capital" and sign a lease on the fourth floor. Two investors from the café call before lunch.\n\nYou started in a bedsit above a chip shop.\n\nYOU WON.', [{l:'Start again', f:restart}]); }}]:[]),
+    {l:'Close', f:closeDlg}]); }
+function jobPortal(){ const m=$('mini'); m.classList.add('open');
+  m.innerHTML=`<div class="top"><b>JOB PORTAL</b><button class="close" id="miniClose">CLOSE</button></div><div style="font-size:13px;color:var(--ink-2)">Apply in person. One employer at a time: resign (laptop or at a reception) before you interview elsewhere. Big firms pay less to start but go much further. Hedge funds pay more and fire faster.</div>`+
+    FIRMS.map(f=>{ const rq=reqs(f); const ok=qualifies(f); const here=S.job&&S.job.firm===f.id; return `<div class="row"><div><b>${f.name}</b>${here?' · <span class="ok">YOU WORK HERE</span>':''}<small>${money(f.salary)}/day · book ${moneyM(f.book)}→${moneyM(f.maxBook)} · bonus ${Math.round(f.bonus*100)}% · fired at −${Math.round(f.fireLoss*100)}%</small><small>${rq.length?rq.map(r=>`<span class="${r.ok?'ok':'no'}">${r.t}</span>`).join(' · '):'no requirements'}</small></div><span class="${here?'ok':S.job?'no':ok?'ok':'no'}">${here?'CURRENT':S.job?'RESIGN FIRST':ok?'QUALIFY':'NOT YET'}</span></div>`; }).join('');
+  $('miniClose').onclick=()=>m.classList.remove('open'); closeDlg(); }
+function brokerage(){ const lines=TICK.filter(k=>S.ppos[k.t]).map(k=>`${k.t} ${S.ppos[k.t]} sh · ${money(S.ppos[k.t]*S.px[k.t])}`).join('\n')||'no holdings';
+  say(null,`Hawkeye Brokers. Cash ${money(S.cash)}.\nHoldings:\n${lines}`, [{l:'Buy', f:()=>say(null,'Buy what?', TICK.map(k=>({l:`${k.t} · ${S.px[k.t].toFixed(2)}`, s:k.n, f:()=>say(null,`How much ${k.t}?`, [0.25,0.5,1].map(p=>({l:`${Math.round(p*100)}% of cash (${money(S.cash*p)})`, f:()=>{ const sh=Math.floor(S.cash*p/S.px[k.t]); if (sh<1) return say(null,'Not enough cash for one share.'); S.cash-=sh*S.px[k.t]; S.ppos[k.t]+=sh; S.flags.ptraded=true; gainXp(5); say(null,`Bought ${sh} ${k.t}.`); }})).concat([{l:'Back', f:brokerage}]))})).concat([{l:'Back', f:brokerage}]))},
+    {l:'Sell', f:()=>{ const has=TICK.filter(k=>S.ppos[k.t]); if (!has.length) return say(null,'Nothing to sell.'); say(null,'Sell what?', has.map(k=>({l:`Sell all ${k.t} (${money(S.ppos[k.t]*S.px[k.t])})`, f:()=>{ S.cash+=S.ppos[k.t]*S.px[k.t]; S.ppos[k.t]=0; say(null,`Sold. Cash ${money(S.cash)}.`); }})).concat([{l:'Back', f:brokerage}])); }}, {l:'Close', f:closeDlg}]); }
+function housing(){ const t=S.home.tier; const opts=HOMES.map((h,i)=>({l:`${h.t}${i===t?' (current)':''}`, s:`Rent ${money(h.rent)}/week · deposit ${money(h.deposit)} · ${h.energy} energy/day`, dis:i===t, cls:i>t?'gold':'', f:()=>{ if (i>t&&S.cash<h.deposit) return say(null,`You need ${money(h.deposit)} for the deposit.`); if (i>t) S.cash-=h.deposit; S.home.tier=i; S.energy=Math.min(S.energy,maxEnergy()); say(null,`You move to ${h.t}. ${h.desc}`); }}));
+  say(null,'Ashbury housing. Rent is due every Monday. Fall two weeks behind and you are out.', opts.concat([{l:'Close', f:closeDlg}])); }
+
+/* ---------- desk: research & trading with the firm's book ---------- */
+const rules=()=>(firm()&&firm().rules)||{};
+function canTrade(k, dir){ const r=rules(); if (dir<0&&r.noShort) return `${firm().name} does not short. House rule.`; if ((r.exclude||[]).includes(k)) return `${tk(k).n} is on the exclusion list. ${first(firm().staff.extra.name)} would have your head.`; return null; }
+function deskMenu(){ const m=msHere(); const open=TICK.filter(k=>S.pos[k.t]).map(k=>`${k.t}: ${S.pos[k.t]>0?'long':'short'} ${money(Math.abs(S.pos[k.t])*S.px[k.t])}`).join('\n')||'none';
+  say(null, `Your desk. Three screens, a cold cup of coffee. Book ${moneyM(book())}.\nOpen positions:\n${open}`, [
+    {l:'Research a stock (2 energy)', s:'Read the signal with your Analysis', f:()=>{ if (!useEnergy(2)) return; closeDlg(); openResearch(); }},
+    ...(m&&m.stage===1&&!m.bet ? [{l:`Take a view on ${m.tk}`, cls:'gold', s:`${m.clues.length} of 5 clues · reports in ${m.earnDay-S.day} day(s)`, f:()=>{ const stake=Math.min(0.4, Math.max(0.1, SC.firm.fireLoss*2), rules().maxSize||1); const cap=book()*stake*(m.big?2:1); const place=dir=>{ const err=canTrade(m.tk,dir); if (err) return say(null,err); const sh=Math.floor(cap/S.px[m.tk])*dir; S.pos[m.tk]+=sh; m.bet=dir>0?'long':'short'; S.flags.traded=true; gainXp(10); say(null, `${dir>0?'LONG':'SHORT'} ${m.tk} for ${money(Math.abs(sh)*S.px[m.tk])}${m.big?' with firm capital':''}. Now we wait.`); };
+        say(null, `The ${m.tk} case. Clues: ${m.clues.map(c=>({mentor:first(SC.firm.staff.mentor.name),extra:first(SC.firm.staff.extra.name),terminal:'terminal',cafe:'café'})[c]).join(', ')||'none yet'}.\n${m.big?`${first(SC.firm.staff.boss.name)} has doubled your stake: ${Math.round(stake*200)}% of the book.`:`Stake: ${Math.round(stake*100)}% of the book.`}`, [{l:'LONG: they beat', f:()=>place(1)}, {l:'SHORT: they miss', f:()=>place(-1)}, {l:'Stay out', s:'The boss will ask why', f:()=>{ m.bet='none'; say(null,'You close the tab. Sometimes the best trade is no trade. Your boss may not agree.'); }}, {l:'Wait', f:closeDlg}]); }}] : []),
+    {l:'Close a position', f:()=>{ const has=TICK.filter(k=>S.pos[k.t]); if (!has.length) return say(null,'You have no open positions.'); say(null,'Which one?', has.map(k=>({l:`Close ${k.t}`, f:()=>{ S.pos[k.t]=0; gainXp(3); say(null,`${k.t} closed.`); }})).concat([{l:'None', f:closeDlg}])); }},
+    {l:'Stand up', f:closeDlg}]);
+}
+let miniSel=null;
+function openResearch(){
+  const m=$('mini'); m.classList.add('open'); miniSel=TICK[0].t; const r=rules(); const sizes=[0.15,0.35,0.6].filter(s=>!r.maxSize||s<=r.maxSize+1e-9);
+  m.innerHTML=`<div class="top"><b>RESEARCH · ${SC.firm.short}</b><button class="close" id="miniClose">CLOSE</button></div>
+    <div class="tk" id="tk"></div><canvas id="mchart" width="700" height="320"></canvas><div class="read" id="read"></div>
+    <div class="tk" id="sizes">${sizes.map((s,i)=>`<button data-s="${s}" aria-pressed="${i===0}">${Math.round(s*100)}% of book</button>`).join('')}</div>
+    <div class="choices" style="grid-template-columns:1fr 1fr"><button id="mLong" class="green">LONG</button><button id="mShort" class="red" ${r.noShort?'disabled':''}>SHORT${r.noShort?' (house rule: no)':''}</button></div>`;
+  $('miniClose').onclick=()=>{ m.classList.remove('open'); };
+  let size=sizes[0]; m.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ size=+b.dataset.s; m.querySelectorAll('[data-s]').forEach(x=>x.setAttribute('aria-pressed',x===b)); });
+  const tkEl=$('tk'); TICK.forEach(k=>{ const b=document.createElement('button'); b.textContent=k.t; b.setAttribute('aria-pressed', k.t===miniSel); b.onclick=()=>{ miniSel=k.t; tkEl.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); drawRead(); }; tkEl.appendChild(b); });
+  S.flags.researched=true; gainXp(10);
+  function drawRead(){ const k=tk(miniSel); const h=S.hist[k.t]; const cv=$('mchart'), c=cv.getContext('2d'); c.clearRect(0,0,700,320); const mn=Math.min(...h), mx=Math.max(...h), rg=mx-mn||1;
+    c.strokeStyle='#3a4256'; c.lineWidth=1; for (let i=0;i<5;i++){ const y=20+i*70; c.beginPath(); c.moveTo(0,y); c.lineTo(700,y); c.stroke(); }
+    c.strokeStyle=h[h.length-1]>=h[0]?'#5ee28a':'#ff6b6b'; c.lineWidth=3; c.beginPath(); h.forEach((v,i)=>{ const x=i/(h.length-1)*690+5, y=300-(v-mn)/rg*270; i?c.lineTo(x,y):c.moveTo(x,y); }); c.stroke();
+    c.fillStyle='#a8adbd'; c.font='16px IBM Plex Sans'; c.fillText(`${k.t} · ${k.n} · ${S.px[k.t].toFixed(2)}`, 10, 316);
+    if (!S.signals[k.t] || S.signals[k.t].day!==S.day){ const clarity=clamp(0.25+S.stats.analysis*0.12+(S.flags.quantModel?0.2:0),0,0.95); const noise=(rnd()-0.5)*0.03*(1-clarity); S.signals[k.t]={day:S.day, v:S.drift[k.t]+noise, clarity}; }
+    const sg=S.signals[k.t]; const strength=Math.abs(sg.v)>0.008?'strong':Math.abs(sg.v)>0.003?'weak':'no';
+    const ex=(r.exclude||[]).includes(k.t)?'<br><small style="color:var(--red)">On the exclusion list here.</small>':'';
+    $('read').innerHTML=`Your read on <b>${k.t}</b>: ${strength} <b>${sg.v>0.003?'positive':sg.v<-0.003?'negative':''}</b> signal · clarity ${Math.round(sg.clarity*100)}%<br><small style="color:var(--ink-2)">${sg.clarity<0.5?'You are not sure. More Analysis gives cleaner reads.':sg.clarity<0.75?'Fairly sure, but there is noise.':'Pretty sure.'}</small>${ex}`; }
+  drawRead();
+  const place=dir=>{ const k=miniSel; const err=canTrade(k,dir); if (err){ toast(err); return; } const sh=Math.floor(book()*size/S.px[k])*dir; S.pos[k]+=sh; S.flags.traded=true; gainXp(8); m.classList.remove('open'); toast(`${dir>0?'LONG':'SHORT'} ${k} · ${money(Math.abs(sh)*S.px[k])}`); save(); };
+  $('mLong').onclick=()=>place(1); $('mShort').onclick=()=>place(-1);
+}
+
+/* ---------- day cycle ---------- */
+const bossNpc=f=>{ const h=hash(f.staff.boss.name); return {name:f.staff.boss.name, role:f.staff.boss.title, frames:charFrames(HAIRS[h%HAIRS.length], f.color, '#1c1a22', SKINS[(h>>5)%SKINS.length])}; };
+function restart(){ S=fresh(); save(); closeDlg(); $('sheet').classList.remove('open'); $('mini').classList.remove('open'); go('home',null,4,5,'down'); intro(); }
+function gameOver(text){ save(); say(null, text+'\n\nGAME OVER.', [{l:'Start again', f:restart}]); }
+function endDay(){
+  closeDlg(); $('mini').classList.remove('open');
+  const f=firm(), j=S.job; const old={}; let pnl=0; const lines=[];
+  for (const k of TICK){ old[k.t]=S.px[k.t]; if (rnd()<0.1) S.drift[k.t]=(rnd()-0.5)*0.02; S.px[k.t]*=1+S.drift[k.t]+k.vol*gauss(); S.hist[k.t].push(S.px[k.t]); if (S.hist[k.t].length>40) S.hist[k.t].shift(); }
+  let earn='';
+  if (S.ms&&S.ms.stage===1&&S.day+1>=S.ms.earnDay){ const m=S.ms, t=m.tk; const jump=(m.truth==='beat'?0.18:-0.19)+0.03*gauss(); S.px[t]*=1+jump; S.hist[t].push(S.px[t]); m.stage=2; S.drift[t]=m.truth==='beat'?0.006:-0.006;
+    earn=`\n\n${t} REPORTS: ${m.truth==='beat'?'BEATS estimates. Stock +'+Math.round(jump*100)+'%':'MISSES. Stock −'+Math.round(-jump*100)+'%'}.${j&&m.firm===j.firm?` ${first(f.staff.boss.name)} wants to see you.`:''}`; }
+  if (j){ for (const k of TICK){ const p=S.pos[k.t]*(S.px[k.t]-old[k.t]); pnl+=p; if (S.pos[k.t]) lines.push(`${k.t} ${money(p)}`); } j.pnlQ+=pnl; j.rivalPnl+=book()*(0.0015+0.006*gauss()); j.days++; S.cash+=f.salary; if (pnl>0) gainXp(Math.min(30,Math.round(pnl/book()*800))); }
+  else S.cash+=60;
+  const ppnl=TICK.reduce((a,k)=>a+(S.ppos[k.t]||0)*(S.px[k.t]-old[k.t]),0);
+  S.day++; S.energy=maxEnergy(); for (const fl of ['coffee','lessonToday','ate','pub','cafeCoffee']) S.flags[fl]=false;
+  let txt=`Overnight: ${j?money(pnl):'no book'}${lines.length?'\n'+lines.join('\n'):''}${ppnl?`\nPersonal account ${money(ppnl)}.`:''}${earn}\n\n${j?`Salary +${money(f.salary)}.`:'Unemployment benefit +$60.'}`;
+  if ((S.day-1)%5===0){ const r=HOMES[S.home.tier].rent; S.cash-=r; txt+=` Rent −${money(r)}.`; if (S.cash<-2*r){ S.over='evicted'; go('home',null,4,5,'down'); return gameOver(txt+`\n\nMonday. The landlord is on the stairs with a locksmith. "Two weeks behind. I'm sorry, love." You carry a bin bag of shirts to the station and don't buy a ticket.`); } if (S.cash<0) txt+=' You are overdrawn.'; }
+  if (S.insider&&S.day%3===0&&rnd()<0.35){ S.over='sec'; go('home',null,4,5,'down'); return gameOver(txt+`\n\nTwo people in grey suits are waiting at your desk in the morning. Compliance stands behind them, looking away.\n\n"We'd like to talk about your trades in ${tk(S.insider.tk).n}."`); }
+  txt+=` Day ${S.day}.`;
+  if (j){
+    if (j.pnlQ<-f.fireLoss*book()){ const t=txt+`\n\n${first(f.staff.boss.name)} calls you in. "Minus ${Math.abs(j.pnlQ/book()*100).toFixed(1)}%. We're done here." Ten minutes to clear the desk.`; fire(); return say(null,t); }
+    if (f.halveAt&&!j.cut&&j.pnlQ<-f.halveAt*book()){ j.cut=true; txt+=`\n\nRisk: "Minus ${Math.round(f.halveAt*100)}%. Your book is halved until the review."`; }
+  }
+  save(); go('home',null,4,5,'down');
+  if (j&&j.days%12===0) return say(null, txt, [{l:'To the quarterly review', cls:'gold', f:quarter}]);
+  say(null, txt);
+}
+function fire(){ const f=firm(); S.cv.push(f.id); S.cooldown[f.id]=S.day+20; S.rep=Math.max(0,S.rep-8); if (S.ms&&S.ms.firm===f.id) S.ms=null; if (S.insider&&S.insider.firm===f.id) S.insider=null; S.job=null; for (const k of TICK) S.pos[k.t]=0; save(); go('home',null,4,5,'down'); }
+function quarter(){
+  const f=firm(), j=S.job, b=book(); const you=j.pnlQ/b*100, riv=j.rivalPnl/b*100, beat=j.pnlQ>j.rivalPnl;
+  const delta=Math.round(you*2)+(beat?6:-4); j.frep+=delta; S.rep+=Math.max(0,Math.round(delta/2)); gainXp(beat?60:20); if (beat) S.flags.q1=true;
+  let text=`Quarterly review at ${f.name}.\nYou: ${pct(you)} · ${first(f.staff.rival.name)}: ${pct(riv)}.\nFirm reputation ${delta>=0?'+':''}${delta} → ${j.frep}.`;
+  const bonus=Math.max(0,j.pnlQ*f.bonus); S.cash+=bonus; text+=bonus?`\nBonus ${money(bonus)}.`:f.bonus?'\nNo bonus this quarter.':'\nThis firm pays no bonus. You knew that.';
+  let fired=false;
+  if (j.rank<3&&j.frep>=Math.round(RANKS[j.rank+1].rep*f.promo)){ j.rank++; S.rep+=5; gainXp(80); text+=`\n\n"You're ${rankName()} now. New book: ${moneyM(Math.min(f.maxBook,f.book*RANKS[j.rank].mult))}."`; }
+  else if (!beat&&j.frep<5){ fired=true; text+=`\n\n"I don't have room for number two." You're out.`; }
+  else if (j.rank<3) text+=`\nNext promotion at firm reputation ${Math.round(RANKS[j.rank+1].rep*f.promo)}.`;
+  for (const k of TICK) S.pos[k.t]=0; j.pnlQ=0; j.rivalPnl=0; j.boost=false; j.cut=false;
+  if (j.rank===3&&f.maxBook>=1e8){ S.over='won'; save(); return say(bossNpc(f), text+`\n\n${f.top}. Your name on the door. You look out over the floor and see the new junior who has just been given ${moneyM(f.book)} to play with.\n\nYou started in a bedsit above a chip shop.\n\nYOU WON.`, [{l:'Start again', f:restart}]); }
+  if (j.rank===3) text+=`\n\nYou run the place. The place is small. The big firms have noticed; so has your bank balance.`;
+  const npc=bossNpc(f); if (fired) fire(); save(); say(npc, text);
+}
+function intro(){ S.flags.intro=true; say(null,'Monday, 06:40. Ashbury, population 1,900.\n\nYou are Dave. You have a finance degree, $1,500, a bedsit above a chip shop and no job. The 7:42 to Lombard City leaves from the platform behind the house. The laptop has a job portal; the library has books.\n\nBrickhouse Trading takes anyone. The big firms want certificates and a reputation.\n\nTap where you want to go. Tap a person, a desk or a door to use it.'); }
+
+/* ---------- menu sheet ---------- */
+function openSheet(){
+  const b=$('sheetBody'); const f=firm(), j=S.job;
+  const stat=(k,l)=>`<div class="statrow"><span>${l}</span><div class="bar"><i style="width:${Math.min(100,S.stats[k]*10)}%"></i></div>${S.pts?`<button data-st="${k}">+1</button>`:`<span>${S.stats[k]}</span>`}</div>`;
+  const nextRep=j&&j.rank<3?Math.round(RANKS[j.rank+1].rep*f.promo):null;
+  b.innerHTML=`<h2>${rankName()}${f?' · '+f.name:''} · level ${S.lvl}</h2><div class="statrow"><span>XP</span><div class="bar"><i style="width:${S.xp/xpNeed()*100}%"></i></div><span>${S.xp}/${xpNeed()}</span></div>
+    ${stat('analysis','Analysis')}${stat('charm','Charm')}${stat('nerve','Nerve')}
+    <div class="statrow"><span>Reputation</span><div class="bar"><i style="width:${clamp(S.rep,0,100)}%"></i></div><span>${S.rep}</span></div>
+    ${j?`<div class="statrow"><span>Firm rep</span><div class="bar"><i style="width:${nextRep?clamp(j.frep/nextRep*100,0,100):100}%"></i></div><span>${j.frep}${nextRep?'/'+nextRep:''}</span></div>
+    <h2 style="margin-top:14px">Book ${moneyM(book())} · quarter P&amp;L ${money(j.pnlQ)} · day ${j.days%12}/12</h2><div class="pos">${TICK.filter(k=>S.pos[k.t]).map(k=>`<span>${k.t}</span><span>${S.pos[k.t]>0?'long':'short'}</span><span>${money(Math.abs(S.pos[k.t])*S.px[k.t])}</span>`).join('')||'<span>no positions</span>'}</div>`:'<div style="font-size:13px;color:var(--ink-2);margin-top:8px">No job. Unemployment benefit $60/day.</div>'}
+    <h2 style="margin-top:14px">Personal · cash ${money(S.cash)} · net worth ${money(netWorth())}</h2><div class="pos">${TICK.filter(k=>S.ppos[k.t]).map(k=>`<span>${k.t}</span><span>${S.ppos[k.t]} sh</span><span>${money(S.ppos[k.t]*S.px[k.t])}</span>`).join('')||'<span>no holdings</span>'}</div>
+    <div style="font-size:13px;color:var(--ink-2)">${HOMES[S.home.tier].t} · rent ${money(HOMES[S.home.tier].rent)}/week · AFA level ${S.study.cert} · ${S.study.pts} study points${S.cv.length?` · CV: ${S.cv.map(id=>firmById(id).short).join(', ')}`:''}</div>
+    <h2 style="margin-top:14px">Quests</h2>${QUESTS.filter(q=>!q.show||q.show(S)).map(q=>`<div class="q ${q.done(S)?'done':''}"><b>${q.t}</b><small>${q.d}</small></div>`).join('')}
+    ${f?`<h2 style="margin-top:14px">Colleagues</h2>${['boss','mentor','rival','extra'].map(k=>`<div class="statrow"><span>${first(f.staff[k].name)}</span><div class="bar"><i style="width:${(affOf(k)+100)/2}%;background:${affOf(k)<0?'var(--red)':'var(--green)'}"></i></div><span>${affOf(k)}</span></div>`).join('')}`:''}
+    <div style="margin-top:16px;font-size:12px;color:var(--ink-2)">All firms, people and prices are fictional. Saved in this browser only.</div><button class="close" id="newGame" style="margin-top:10px">NEW GAME</button>`;
+  b.querySelectorAll('[data-st]').forEach(x=>x.onclick=()=>{ if (!S.pts) return; S.pts--; S.stats[x.dataset.st]++; save(); openSheet(); });
+  $('newGame').onclick=()=>{ if (confirm('Start a new game? Your save will be deleted.')) restart(); };
+  $('sheet').classList.add('open');
+}
+$('menuBtn').onclick=openSheet; $('sheetClose').onclick=()=>$('sheet').classList.remove('open');
+let toastT; function toast(t){ const el=$('toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),2600); }
+function hud(){ $('hDay').textContent=`Day ${S.day} · ${DAYS[(S.day-1)%5]}`; $('hRank').textContent=S.job?`${rankName()} · ${firm().short}`:`Unemployed · ${SC?SC.name:''}`; $('hEnergy').textContent='●'.repeat(S.energy)+'○'.repeat(Math.max(0,maxEnergy()-S.energy)); $('hCash').textContent=money(S.cash); $('hBook').textContent=S.job?`P&L ${money(S.job.pnlQ)}`:`rent ${money(HOMES[S.home.tier].rent)} Mon`; }
+
+/* ---------- movement & input ---------- */
+const P={x:S.player.x, y:S.player.y, fx:S.player.x, fy:S.player.y, dir:S.player.dir||'down', moving:false, path:[], after:null};
+const npcAt=(x,y)=>NPCS.find(n=>n.x===x&&n.y===y);
+const blocked=(x,y)=>solid(tile(x,y))||!!npcAt(x,y);
+function tryMove(dx,dy){ if (dlg||P.moving) return; P.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; const nx=P.x+dx, ny=P.y+dy; if (blocked(nx,ny)) return; P.x=nx; P.y=ny; P.moving=true; }
+function facing(){ const d={left:[-1,0],right:[1,0],up:[0,-1],down:[0,1]}[P.dir]; return {x:P.x+d[0], y:P.y+d[1]}; }
+const onPlatform=(x,y)=>SC.platform&&y===SC.platform.y&&x>=SC.platform.x0&&x<=SC.platform.x1;
+function canAct(){ const f=facing(); const c=tile(f.x,f.y); return !!npcAt(f.x,f.y) || interactable(c) || c==='O' || onPlatform(f.x,f.y) || (SC.k==='home'&&c==='W'); }
+function act(){ if (dlg) return; if (SC.k==='office'&&!S.job) return; const f=facing(); const n=npcAt(f.x,f.y); if (n){ n.dir={left:'right',right:'left',up:'down',down:'up'}[P.dir]; return DIALOG[n.id](n); } const c=tile(f.x,f.y); if (c==='O'||onPlatform(f.x,f.y)) return tryMove(f.x-P.x,f.y-P.y); if (interactable(c)||(SC.k==='home'&&c==='W')) interactTile(c); }
+function onArrive(){ S.player={x:P.x,y:P.y,dir:P.dir}; if (dlg) return; const c=tile(P.x,P.y); if (c==='O'||onPlatform(P.x,P.y)){ P.path=[]; P.after=null; } if (c==='O'){ const b=SC.buildings.find(b=>b.dx===P.x&&b.dy===P.y); if (b) return doorTrigger(b); } if (onPlatform(P.x,P.y)) return trainToCity(); }
+const held=new Set();
+const KEYS={ArrowUp:'0,-1',ArrowDown:'0,1',ArrowLeft:'-1,0',ArrowRight:'1,0',w:'0,-1',s:'0,1',a:'-1,0',d:'1,0'};
+addEventListener('keydown', e=>{ const k=KEYS[e.key]; if (k){ held.add(k); e.preventDefault(); } if (e.key==='Enter'||e.key===' '){ if (dlg){ const first=$('choices').querySelector('button'); if (first&&$('choices').children.length===1) first.click(); } else act(); e.preventDefault(); } if (e.key==='Escape'){ $('sheet').classList.remove('open'); $('mini').classList.remove('open'); } });
+addEventListener('keyup', e=>{ const k=KEYS[e.key]; if (k) held.delete(k); });
+// tap to walk (BFS)
+const cv=$('game'); let view={scale:3, ox:0, oy:0};
+cv.addEventListener('pointerdown', e=>{ if (dlg) return; const r=cv.getBoundingClientRect(); const wx=Math.floor(((e.clientX-r.left)*(cv.width/r.width)/view.scale+view.ox)/T), wy=Math.floor(((e.clientY-r.top)*(cv.height/r.height)/view.scale+view.oy)/T);
+  const n=npcAt(wx,wy); const c=tile(wx,wy);
+  if (n || interactable(c) || (SC.k==='home'&&c==='W')){ const adj=[[0,1],[0,-1],[1,0],[-1,0]].map(([dx,dy])=>({x:wx+dx,y:wy+dy})).filter(p=>!blocked(p.x,p.y)); const path=adj.map(a=>bfs(P,a)).filter(Boolean).sort((a,b)=>a.length-b.length)[0]; if (path){ P.path=path; P.after={x:wx,y:wy}; } else if (Math.abs(wx-P.x)+Math.abs(wy-P.y)===1){ P.dir=wx<P.x?'left':wx>P.x?'right':wy<P.y?'up':'down'; act(); } return; }
+  let tx=wx, ty=wy;
+  if (c==='B'){ const b=SC.buildings.find(b=>wx>=b.x&&wx<b.x+b.w&&wy>=b.y&&wy<b.y+b.h); if (b){ tx=b.dx; ty=b.dy; } }
+  else if (SC.platform&&(c==='-'||c==='='||wy<=SC.platform.y)){ tx=clamp(wx,SC.platform.x0,SC.platform.x1); ty=SC.platform.y; }
+  if (!solid(tile(tx,ty))){ const path=bfs(P,{x:tx,y:ty}); if (path) { P.path=path; P.after=null; } } });
+function bfs(from,to){ if (from.x===to.x&&from.y===to.y) return []; const q=[[from.x,from.y]], prev=new Map([[from.x+','+from.y,null]]); let steps=0; while(q.length&&steps++<5000){ const [x,y]=q.shift(); for (const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]){ const nx=x+dx, ny=y+dy, k=nx+','+ny; if (prev.has(k)||blocked(nx,ny)) continue; prev.set(k,x+','+y); if (nx===to.x&&ny===to.y){ const path=[]; let cur=k; while(cur&&cur!==from.x+','+from.y){ const [px,py]=cur.split(',').map(Number); path.unshift({x:px,y:py}); cur=prev.get(cur); } return path; } q.push([nx,ny]); } } return null; }
+
+/* ---------- render loop ---------- */
+const ctx=cv.getContext('2d'); let frame=0, last=performance.now();
+function resize(){ const dpr=Math.min(devicePixelRatio||1,3); const w=cv.clientWidth, h=cv.clientHeight; cv.width=Math.floor(w*dpr); cv.height=Math.floor(h*dpr); view.scale=Math.max(2, Math.floor(dpr*w/(12*T))); ctx.imageSmoothingEnabled=false; }
+addEventListener('resize',resize);
+function update(dt){
+  if (!P.moving && !dlg){ if (P.path.length){ const n=P.path[0]; if (!blocked(n.x,n.y)){ tryMove(n.x-P.x,n.y-P.y); P.path.shift(); if (!P.path.length && P.after){ const a=P.after; P.after=null; setTimeout(()=>{ P.dir=a.x<P.x?'left':a.x>P.x?'right':a.y<P.y?'up':'down'; act(); }, 160); } } else P.path=[]; }
+    else { const h=[...held][0]; if (h){ const [dx,dy]=h.split(',').map(Number); tryMove(dx,dy); } } }
+  if (P.moving){ const sp=dt*7; P.fx+=clamp(P.x-P.fx,-sp,sp); P.fy+=clamp(P.y-P.fy,-sp,sp); if (Math.abs(P.fx-P.x)<0.01&&Math.abs(P.fy-P.y)<0.01){ P.fx=P.x; P.fy=P.y; P.moving=false; onArrive(); } }
+  for (const n of NPCS){ n.t+=dt; if (n.patrol && !dlg){ if (n.fx===n.x && n.fy===n.y && Math.floor(n.t)%6===0 && n.t%1<dt){ const tgt=n.patrol[Math.floor(n.t/6)%2]; const dx=Math.sign(tgt[0]-n.x), dy=Math.sign(tgt[1]-n.y); const nx=n.x+(dx||0), ny=dx?n.y:n.y+dy; if ((dx||dy)&&!blocked(nx,ny)&&!(nx===P.x&&ny===P.y)){ n.x=nx; n.y=ny; n.dir=dx<0?'left':dx>0?'right':dy<0?'up':'down'; } } const sp=dt*4; n.fx+=clamp(n.x-n.fx,-sp,sp); n.fy+=clamp(n.y-n.fy,-sp,sp); } }
+}
+const shade=(hex,d)=>{ const n=parseInt(hex.slice(1),16); const f=v=>clamp(v+d,0,255); return `rgb(${f(n>>16)},${f((n>>8)&255)},${f(n&255)})`; };
+function drawBuildings(){ for (const b of SC.buildings){ const x=b.x*T, y=b.y*T, w=b.w*T, h=b.h*T;
+    ctx.fillStyle=b.color; ctx.fillRect(x,y,w,h); ctx.fillStyle=shade(b.color,-25); ctx.fillRect(x,y,w,3); ctx.fillRect(x,y,2,h); ctx.fillStyle=shade(b.color,18); ctx.fillRect(x+w-2,y,2,h);
+    const hb=hash(b.id); for (let j=1;j<b.h-1;j++) for (let i=0;i<b.w;i++){ const lit=(i*7+j*13+hb)%5<3; ctx.fillStyle=lit?'rgba(245,197,66,.85)':'#1a2446'; ctx.fillRect(x+i*T+4,y+j*T+4,8,8); }
+    ctx.fillStyle='#2a1a0e'; ctx.fillRect(b.dx*T+3,b.dy*T+2,10,14); ctx.fillStyle='#f5c542'; ctx.fillRect(b.dx*T+5,b.dy*T+4,6,2);
+    ctx.fillStyle='rgba(10,12,18,.9)'; ctx.fillRect(x+3,y+4,w-6,10); ctx.fillStyle=b.kind==='firm'?'#f5c542':'#f1efe6'; ctx.textAlign='center'; ctx.textBaseline='middle'; let fs=7; ctx.font=`bold ${fs}px Silkscreen, monospace`; while (fs>4&&ctx.measureText(b.label).width>w-10){ fs--; ctx.font=`bold ${fs}px Silkscreen, monospace`; } ctx.fillText(b.label, x+w/2, y+9); ctx.textAlign='left'; ctx.textBaseline='alphabetic'; }
+  if (SC.k==='village'){ const x=9*T, y=T-5; ctx.fillStyle='#6b2a2a'; ctx.fillRect(x,y,8*T,T+6); ctx.fillStyle='#3a1a1a'; ctx.fillRect(x,y+T+2,8*T,4); for (let i=0;i<8;i++){ ctx.fillStyle='#cfe3ff'; ctx.fillRect(x+i*T+3,y+4,10,7); } ctx.fillStyle='#f5c542'; ctx.fillRect(x+8*T-4,y+8,3,3); } }
+function draw(){
+  const W=SC.rows[0].length, H=SC.rows.length; const sc=view.scale; const vw=cv.width/sc, vh=cv.height/sc; const top=Math.min(vh*0.18, 72*(cv.height/cv.clientHeight)/sc), vis=vh-top;
+  view.ox = W*T<vw ? -(vw-W*T)/2 : clamp(P.fx*T+T/2-vw/2, 0, W*T-vw); view.oy = H*T<vis ? -(vis-H*T)/2-top : clamp(P.fy*T+T/2-vis/2, 0, H*T-vis)-top;
+  ctx.setTransform(sc,0,0,sc,0,0); ctx.fillStyle=SC.k==='office'||SC.k==='home'?'#0a0c12':'#101a1a'; ctx.fillRect(0,0,vw,vh); ctx.translate(-view.ox,-view.oy);
+  const x0=Math.max(0,Math.floor(view.ox/T)), y0=Math.max(0,Math.floor(view.oy/T)), x1=Math.min(W-1,Math.ceil((view.ox+vw)/T)), y1=Math.min(H-1,Math.ceil((view.oy+vh)/T));
+  const under=SC.k==='office'||SC.k==='home'?TILES['.']:TILES['g'];
+  for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++){ const c=SC.rows[y][x]; const t=TILES[c]||under; if (!'#WGE~-=SRMqB'.includes(c)) ctx.drawImage(under,x*T,y*T); ctx.drawImage(t,x*T,y*T); }
+  drawBuildings();
+  const ents=[...NPCS.map(n=>({y:n.fy, d:()=>{ const f=n.frames[n.dir][Math.floor(n.t*2)%2===0||n.fx!==n.x||n.fy!==n.y?0:1]; ctx.drawImage(f, n.fx*T+2, n.fy*T-6); if (!dlg && questFor(n)) { ctx.fillStyle='#f5c542'; ctx.font='bold 8px Silkscreen, monospace'; ctx.fillText('!', n.fx*T+7, n.fy*T-8+Math.sin(n.t*4)*1.5); } }})),
+    {y:P.fy, d:()=>{ const f=PLAYER_FRAMES[P.dir][P.moving?Math.floor(frame/6)%2:0]; ctx.drawImage(f, P.fx*T+2, P.fy*T-6); }}].sort((a,b)=>a.y-b.y);
+  for (const e of ents) e.d();
+  if (!dlg && canAct()){ const f=facing(); ctx.strokeStyle='rgba(245,197,66,.8)'; ctx.lineWidth=1; ctx.strokeRect(f.x*T+1.5,f.y*T+1.5,T-3,T-3); }
+  ctx.setTransform(sc,0,0,sc,0,0); ctx.fillStyle='rgba(10,14,30,.12)'; ctx.fillRect(0,0,vw,vh);
+}
+function questFor(n){ const f=SC.firm, j=S.job; if (!f||!j) return false; const m=msHere(); const k=n.id;
+  if (k==='boss') return !j.met || (j.days>=2&&!S.ms&&!S.flags['ms_'+f.id]) || (m&&m.stage===2) || (S.flags.reportPending===f.id&&f.staff.extra.kind!=='compliance');
+  if (m&&m.stage===1&&(k==='mentor'||k==='extra')&&!m.clues.includes(k)) return true;
+  if (k==='mentor') return !S.flags['lesson_'+f.id];
+  if (k==='rival') return (S.ms&&S.ms.firm===f.id&&S.ms.stage>=2&&!S.flags['msRival_'+f.id]) || (!S.flags['tip_'+f.id]&&j.days>=5&&affOf('rival')>-5);
+  if (k==='extra'){ if (n.kind==='compliance') return S.flags.reportPending===f.id; if (n.kind==='quant') return !S.flags.quantModel; return !S.flags['intern_'+f.id]; }
+  return false; }
+window.__dj={P,bfs,act,get S(){return S},set S(v){S=v},view,tile,go,endDay,hire,firmById,FIRMS,quarter,fresh,save,get SC(){return SC},closeDlg};
+function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now; frame++; update(dt); draw(); requestAnimationFrame(loop); }
+document.addEventListener('visibilitychange',()=>{ if (document.hidden) save(); });
+
+/* ---------- boot ---------- */
+SC=buildScene(S.scene.k, S.scene.firm); if (SC.k==='office'&&(!S.job||S.job.firm!==S.scene.firm)){ SC=buildScene('home'); S.scene={k:'home'}; S.player={x:4,y:5,dir:'down'}; P.x=P.fx=4; P.y=P.fy=5; }
+spawnNPCs(); resize(); hud();
+if (S.over) say(null, S.over==='won'?'You made it to the top. The game is over.':'The game is over.', [{l:'Start again', f:restart}]);
+else if (S.day===1 && !S.flags.intro){ S.flags.intro=true; intro(); }
+requestAnimationFrame(loop);
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) { addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{})); }
+</script>
+</body>
+</html>
